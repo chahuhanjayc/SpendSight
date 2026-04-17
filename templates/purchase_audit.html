@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Purchase Audit - SpendSight{% endblock %}
+{% block page_title %}Purchase Audit{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+  <div class="card-header-custom">
+    <i class="bi bi-basket2-fill" style="color:var(--brand)"></i>
+    <span>Repetition and Stock Audit</span>
+  </div>
+  <div class="card-body p-3">
+    <form method="GET" action="{{ url_for('purchase_audit') }}" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Category Scope</label>
+        <select name="category" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for cat in category_options %}
+          <option value="{{ cat }}" {{ 'selected' if category_filter == cat }}>{{ cat }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-9">
+        <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:.8rem 1rem;color:var(--text-secondary);font-size:.85rem;">
+          This view combines repurchase gap tracking with quantity-based usage estimates so you can see what is being bought unusually early, unusually late, or should already be depleted.
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3">
+    <div class="stat-card" style="background: linear-gradient(135deg, rgba(26, 86, 219, 0.85), rgba(20, 70, 184, 0.85));">
+      <div class="stat-label">Tracked Items</div>
+      <div class="stat-value">{{ audit_summary.tracked_items }}</div>
+      <div class="stat-sub">Items in {{ category_filter }}</div>
+      <i class="bi bi-box-seam stat-icon"></i>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card" style="background: linear-gradient(135deg, rgba(240, 82, 82, 0.85), rgba(185, 28, 28, 0.85));">
+      <div class="stat-label">Need Attention</div>
+      <div class="stat-value">{{ audit_summary.attention_count }}</div>
+      <div class="stat-sub">Delayed, early, or low-stock signals</div>
+      <i class="bi bi-exclamation-triangle-fill stat-icon"></i>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card" style="background: linear-gradient(135deg, rgba(14, 159, 110, 0.85), rgba(6, 95, 70, 0.85));">
+      <div class="stat-label">Usage Modeled</div>
+      <div class="stat-value">{{ audit_summary.usage_ready_count }}</div>
+      <div class="stat-sub">Items with quantity-based stock estimates</div>
+      <i class="bi bi-speedometer2 stat-icon"></i>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="stat-card" style="background: linear-gradient(135deg, rgba(227, 160, 8, 0.85), rgba(146, 64, 14, 0.85));">
+      <div class="stat-label">Total Spend</div>
+      <div class="stat-value">{{ format_inr(audit_summary.total_spent) }}</div>
+      <div class="stat-sub">Across tracked items</div>
+      <i class="bi bi-cash-coin stat-icon"></i>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header-custom d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <i class="bi bi-table" style="color:var(--brand)"></i>
+      <span>Item Audit Table</span>
+    </div>
+    <span style="font-size:.78rem;color:var(--text-muted);">Tip: add quantity and unit while saving expenses for better stock forecasts.</span>
+  </div>
+  <div class="card-body p-0">
+    {% if audit_rows %}
+    <div class="table-responsive">
+      <table class="table table-hover expense-table mb-0">
+        <thead>
+          <tr>
+            <th class="ps-3">Item</th>
+            <th>Purchases</th>
+            <th>Last Bought</th>
+            <th>Avg Gap</th>
+            <th>Next Expected</th>
+            <th>Latest Qty</th>
+            <th>Usage</th>
+            <th>Status</th>
+            <th class="pe-3">Insight</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in audit_rows %}
+          <tr>
+            <td class="ps-3">
+              <div class="fw-semibold">{{ row.subcategory }}</div>
+              <div style="font-size:.72rem;color:var(--text-muted);">{{ row.category }} | Total {{ format_inr(row.total_spent) }} | Qty history {{ row.total_quantity_display }}</div>
+            </td>
+            <td>{{ row.purchase_count }}</td>
+            <td>
+              <div>{{ row.last_purchase }}</div>
+              <div style="font-size:.72rem;color:var(--text-muted);">{{ row.days_since_last }} day{{ 's' if row.days_since_last != 1 }}</div>
+            </td>
+            <td>{{ '%.1f days'|format(row.avg_gap_days) if row.avg_gap_days else '-' }}</td>
+            <td>{{ row.next_expected or '-' }}</td>
+            <td>{{ row.quantity_display }}</td>
+            <td>
+              <div>{{ row.daily_usage_display }}</div>
+              <div style="font-size:.72rem;color:var(--text-muted);">{% if row.stock_days %}~{{ '%.1f'|format(row.stock_days) }} days, till {{ row.stock_until }}{% else %}-{% endif %}</div>
+            </td>
+            <td>
+              <div>
+                <span class="badge" style="background:{{ '#fee2e2' if row.needs_attention else '#dcfce7' }};color:{{ '#991b1b' if row.needs_attention else '#166534' }};border:1px solid {{ '#fecaca' if row.needs_attention else '#bbf7d0' }};">{{ row.pattern_status }}</span>
+              </div>
+              <div class="mt-1">
+                <span class="badge" style="background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);">{{ row.usage_status }}</span>
+              </div>
+            </td>
+            <td class="pe-3" style="font-size:.8rem;color:var(--text-secondary);max-width:320px;">{{ row.insight }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5" style="color:var(--text-muted);">
+      <i class="bi bi-inboxes" style="font-size:2.5rem;"></i>
+      <p class="mt-3 mb-1">No tracked purchases found for this category.</p>
+      <p style="font-size:.82rem;">Start recording grocery purchases with quantity and unit to unlock usage tracking.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

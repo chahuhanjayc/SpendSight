@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}Analytics — SpendSight{% endblock %}
+{% block page_title %}Analytics{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<!-- Month picker -->
+<div class="d-flex align-items-center flex-wrap gap-2 mb-4">
+  <span class="fw-semibold" style="font-size:.85rem;color:var(--text-secondary);">Month:</span>
+  <div class="d-flex flex-wrap gap-1">
+    {% for m in months %}
+    <button class="period-pill {{ 'active' if m == current_month }}"
+            onclick="selectMonth('{{ m }}', this)">{{ m }}</button>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Mini summary stats -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3"><div class="stat-mini"><div class="v" id="s-total">—</div><div class="l">Total Spent</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-mini"><div class="v" id="s-categories">—</div><div class="l">Categories</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-mini"><div class="v" id="s-top-cat">—</div><div class="l">Top Category</div></div></div>
+  <div class="col-6 col-md-3"><div class="stat-mini"><div class="v" id="s-daily">—</div><div class="l">Daily Average</div></div></div>
+</div>
+
+<div class="row g-3">
+
+  <!-- Spending by Category (Bar Rows) -->
+  <div class="col-md-6">
+    <div class="chart-card h-100">
+      <div class="chart-title"><i class="bi bi-bar-chart-steps" style="color:var(--brand)"></i> Spending by Category</div>
+      <div id="catLegend" class="mt-2"></div>
+    </div>
+  </div>
+
+  <!-- Payment Methods (Bar Rows) -->
+  <div class="col-md-6">
+    <div class="chart-card h-100">
+      <div class="chart-title"><i class="bi bi-credit-card-fill" style="color:var(--accent)"></i> Payment Methods</div>
+      <div id="pmLegend" class="mt-2"></div>
+    </div>
+  </div>
+
+  <!-- Frequency -->
+  <div class="col-12">
+    <div class="chart-card">
+      <div class="chart-title"><i class="bi bi-repeat" style="color:#7E3AF2"></i> Top Items (Frequency)</div>
+      <div class="row align-items-start">
+        <div class="col-md-5">
+          <div id="freqList" style="max-height:400px; overflow-y:auto; padding-right:5px;"><p class="text-center py-3" style="color:var(--text-muted);">Loading…</p></div>
+        </div>
+        <div class="col-md-7">
+          <div style="position:relative;height:400px;"><canvas id="freqChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily bar -->
+  <div class="col-12">
+    <div class="chart-card">
+      <div class="chart-title"><i class="bi bi-bar-chart-fill" style="color:var(--warn)"></i> Daily Spending</div>
+      <div style="position:relative;height:300px;"><canvas id="dailyChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Month comparison -->
+  <div class="col-12">
+    <div class="chart-card">
+      <div class="chart-title">
+        <i class="bi bi-arrow-left-right" style="color:var(--danger)"></i>
+        Month-over-Month Comparison
+        <span id="compLabel" class="fw-normal ms-2" style="color:var(--text-muted);font-size:.8rem;"></span>
+      </div>
+      <div style="position:relative;height:300px;"><canvas id="compChart"></canvas></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let dailyChart, compChart, freqChart;
+let selectedMonth = '{{ current_month }}';
+let analyticsDates = { start: '', end: '' };
+const PM_COLORS = ['#1A56DB','#0E9F6E','#E3A008','#7E3AF2','#F05252','#FF8C00'];
+const PM_COLOR_MAP = { 'EMI': '#7E3AF2', 'Cash': '#0E9F6E' };
+function pmColor(label, idx) { return PM_COLOR_MAP[label] || PM_COLORS[idx] || '#9CA3AF'; }
+
+function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+function labelColor() { return isDark() ? '#8b949e' : '#475569'; }
+function gridColor()  { return isDark() ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)'; }
+function borderColor(){ return isDark() ? '#161b22' : '#ffffff'; }
+
+function selectMonth(month, btn) {
+  selectedMonth = month;
+  document.querySelectorAll('.period-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadAll();
+}
+
+async function loadAll() {
+  await Promise.all([loadMonthly(), loadDaily(), loadPayment(), loadComparison(), loadFrequency()]);
+}
+
+function barRow(label, color, pct, amount, onclickStr) {
+  return `<div class="d-flex align-items-center gap-2 px-1 py-2"
+       style="border-bottom:1px solid var(--border);cursor:pointer;"
+       onclick="${onclickStr}">
+    <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
+    <span style="font-size:.81rem;color:var(--text-secondary);width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;" title="${label}">${label}</span>
+    <div style="flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden;">
+      <div style="width:${pct}%;height:100%;background:${color};border-radius:99px;transition:width .45s ease;"></div>
+    </div>
+    <span style="font-size:.72rem;color:var(--text-muted);width:34px;text-align:right;flex-shrink:0;">${pct}%</span>
+    <span style="font-size:.82rem;font-weight:700;color:var(--text-primary);width:74px;text-align:right;flex-shrink:0;">${fmtINR(amount)}</span>
+  </div>`;
+}
+
+async function loadMonthly() {
+  const res  = await fetch(`/api/analytics/monthly?month=${selectedMonth}`);
+  const data = await res.json();
+
+  analyticsDates.start = data.start;
+  analyticsDates.end = data.end;
+
+  document.getElementById('s-total').textContent      = fmtINR(data.total || 0);
+  document.getElementById('s-categories').textContent = data.labels.length;
+  if (data.labels.length) {
+    const mi = data.amounts.indexOf(Math.max(...data.amounts));
+    document.getElementById('s-top-cat').textContent  = data.labels[mi] || '—';
+  }
+  
+  const el = document.getElementById('catLegend');
+  if (!data.labels.length) { el.innerHTML = '<p class="text-center py-4" style="color:var(--text-muted)">No data this month.</p>'; return; }
+  
+  const total = data.amounts.reduce((a, b) => a + b, 0) || 1;
+  el.innerHTML = data.labels.map((l, i) => {
+    const pct = Math.round(data.amounts[i] / total * 1000) / 10;
+    return barRow(l, data.colors[i], pct, data.amounts[i],
+      `showTransactionDetails('category', '${l.replace(/'/g, "\\'")}', analyticsDates.start, analyticsDates.end)`);
+  }).join('');
+}
+
+async function loadDaily() {
+  const res  = await fetch(`/api/analytics/daily?month=${selectedMonth}`);
+  const data = await res.json();
+  const days  = data.amounts.filter(a=>a>0).length || 1;
+  document.getElementById('s-daily').textContent = fmtINR(data.amounts.reduce((a,b)=>a+b,0) / days);
+  const ctx = document.getElementById('dailyChart').getContext('2d');
+  if (dailyChart) dailyChart.destroy();
+  dailyChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: data.labels, datasets: [{ data: data.amounts, backgroundColor: data.amounts.map(a=>a>0?'#1A56DB':'var(--surface-3)'), borderRadius:3 }] },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c=>`${window.CURRENCY_SYMBOL}${c.raw.toLocaleString('en-IN')}`}}},
+      scales: {
+        y: { beginAtZero:true, grid:{color:gridColor()}, ticks:{color:labelColor(), callback:v=>`${window.CURRENCY_SYMBOL}${(v/1000).toFixed(0)}k`} },
+        x: { 
+          grid:{display:false}, 
+          ticks:{
+            color:labelColor(),
+            autoSkip: false,
+            maxRotation: 0,
+            font: { size: 9 }
+          } 
+        }
+      }
+    }
+  });
+}
+
+async function loadPayment() {
+  const res  = await fetch(`/api/analytics/payment-methods?month=${selectedMonth}`);
+  const data = await res.json();
+  const el = document.getElementById('pmLegend');
+  if (!data.labels.length) { el.innerHTML = '<p class="text-center py-4" style="color:var(--text-muted)">No data this month.</p>'; return; }
+
+  const total = data.amounts.reduce((a, b) => a + b, 0) || 1;
+  el.innerHTML = data.labels.map((l, i) => {
+    const pct = Math.round(data.amounts[i] / total * 1000) / 10;
+    const color = pmColor(l, i);
+    return barRow(l, color, pct, data.amounts[i],
+      `showTransactionDetails('payment', '${l.replace(/'/g, "\\'")}', analyticsDates.start, analyticsDates.end)`);
+  }).join('');
+}
+
+async function loadComparison() {
+  const res  = await fetch(`/api/analytics/comparison`);
+  const data = await res.json();
+  document.getElementById('compLabel').textContent = `— ${data.previous_label} vs ${data.current_label}`;
+  const ctx = document.getElementById('compChart').getContext('2d');
+  if (compChart) compChart.destroy();
+  compChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.categories,
+      datasets: [
+        { label: data.previous_label, data: data.previous, backgroundColor: isDark()?'#30363d':'#cbd5e1', borderRadius:3 },
+        { label: data.current_label,  data: data.current,  backgroundColor: data.colors, borderRadius:3 },
+      ]
+    },
+    options: {
+      plugins: { tooltip:{ callbacks:{ label:c=>`${c.dataset.label}: ${fmtINR(c.raw)}`}}},
+      scales: {
+        y: { beginAtZero:true, grid:{color:gridColor()}, ticks:{color:labelColor(), callback:v=>`${window.CURRENCY_SYMBOL}${(v/1000).toFixed(0)}k`} },
+        x: { grid:{display:false}, ticks:{color:labelColor()} }
+      }
+    }
+  });
+}
+
+async function loadFrequency() {
+  const res  = await fetch(`/api/analytics/subcategory?month=${selectedMonth}`);
+  const data = await res.json();
+  const el   = document.getElementById('freqList');
+  const canvas = document.getElementById('freqChart');
+  if (!canvas) return;
+  const ctx  = canvas.getContext('2d');
+  
+  if (freqChart) freqChart.destroy();
+  if (!data.labels.length) { 
+    el.innerHTML='<p class="text-center py-3" style="color:var(--text-muted)">No data this month.</p>'; 
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    return; 
+  }
+
+  el.innerHTML = data.labels.map((l,i)=>`
+    <div class="d-flex align-items-center gap-2 mb-2 p-2" style="background:var(--surface-2);border-radius:8px;">
+      <span class="badge rounded-pill" style="background:var(--brand);min-width:26px;">${data.counts[i]}x</span>
+      <div class="flex-grow-1 overflow-hidden" style="font-size:.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l}</div>
+      <span style="font-size:.82rem;font-weight:700;color:var(--text-secondary);white-space:nowrap;">${fmtINR(data.amounts[i])}</span>
+    </div>`).join('');
+
+  freqChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.labels.map(l => l.split(' › ')[1]),
+      datasets: [{
+        label: 'Purchase Frequency',
+        data: data.counts,
+        backgroundColor: '#7E3AF2',
+        borderRadius: 5,
+        barThickness: 18
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      maintainAspectRatio: false,
+      scales: {
+        x: { 
+          beginAtZero: true, 
+          grid: { color: gridColor() },
+          ticks: { color: labelColor(), stepSize: 1 } 
+        },
+        y: { 
+          grid: { display: false },
+          ticks: { color: labelColor(), font: { size: 10, weight: '600' } }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: c => `Bought ${c.raw} times` }
+        }
+      }
+    }
+  });
+}
+
+const origToggle = window.toggleTheme;
+window.toggleTheme = function() { origToggle(); setTimeout(loadAll, 250); };
+loadAll();
+</script>
+{% endblock %}

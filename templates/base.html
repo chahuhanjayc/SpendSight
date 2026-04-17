@@ -1,0 +1,2515 @@
+﻿<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}SpendSight{% endblock %}</title>
+  <script>
+    // Immediate theme application to prevent flash
+    (function() {
+      const saved = localStorage.getItem('ss-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+    })();
+  </script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window['pdfjs-dist/build/pdf']) {
+      pdfjsLib = window['pdfjs-dist/build/pdf'];
+    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+  <style>
+    /* ═══════════════════════════════════════════════════════════════════════
+       THEME TOKENS — swap these to flip between light and dark
+    ═══════════════════════════════════════════════════════════════════════ */
+    :root {
+      --brand:        #1A56DB;
+      --brand-hover:  #1446b8;
+      --brand-light:  #eff6ff;
+      --brand-border: #bfdbfe;
+      --accent:       #0E9F6E;
+      --accent-light: #ecfdf5;
+      --warn:         #E3A008;
+      --danger:       #F05252;
+
+      /* Surfaces */
+      --body-bg:      #f1f5f9;
+      --surface:      #ffffff;
+      --surface-2:    #f8fafc;
+      --surface-3:    #f1f5f9;
+
+      /* Borders */
+      --border:       #e2e8f0;
+      --border-2:     #cbd5e1;
+
+      /* Text */
+      --text-primary: #0f172a;
+      --text-secondary:#374151;
+      --text-muted:   #64748b;
+      --text-faint:   #94a3b8;
+
+      /* Sidebar */
+      --sidebar-bg:   #ffffff;
+      --sidebar-text: #64748b;
+      --sidebar-active-bg: #eff6ff;
+      --sidebar-active-text: #1d4ed8;
+      --sidebar-active-border: #3b82f6;
+      --sidebar-hover-bg: #f8fafc;
+      --sidebar-hover-text: #0f172a;
+      --sidebar-label: #94a3b8;
+      --sidebar-brand-text: #0f172a;
+      --sidebar-brand-accent: #1d4ed8;
+      --sidebar-foot: #64748b;
+
+      /* Topbar */
+      --topbar-bg:    #ffffff;
+      --topbar-border:#e2e8f0;
+
+      /* Shadows */
+      --shadow-sm:    0 1px 4px rgba(0,0,0,.06);
+      --shadow-md:    0 4px 16px rgba(0,0,0,.08);
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --body-bg:      #0d1117;
+      --surface:      #161b22;
+      --surface-2:    #1c2128;
+      --surface-3:    #21262d;
+
+      --border:       #30363d;
+      --border-2:     #484f58;
+
+      --text-primary: #e6edf3;
+      --text-secondary:#c9d1d9;
+      --text-muted:   #94a3b8; /* Lightened from #8b949e for better contrast */
+      --text-faint:   #768390; /* Lightened from #6e7681 */
+
+      --sidebar-bg:   #010409;
+      --sidebar-text: #8b949e;
+      --sidebar-active-bg: rgba(56,139,253,.15);
+      --sidebar-active-text: #58a6ff;
+      --sidebar-active-border: #58a6ff;
+      --sidebar-hover-bg: rgba(255,255,255,.04);
+      --sidebar-hover-text: #e6edf3;
+      --sidebar-label: #484f58;
+      --sidebar-brand-text: #e6edf3;
+      --sidebar-brand-accent: #58a6ff;
+      --sidebar-foot: #484f58;
+
+      --topbar-bg:    #161b22;
+      --topbar-border:#30363d;
+
+      --brand-light:  #1e293b;
+      --brand-border: #334155;
+      --accent-light: rgba(14,159,110,.15);
+
+      --shadow-sm:    0 1px 4px rgba(0,0,0,.35);
+      --shadow-md:    0 4px 16px rgba(0,0,0,.45);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       BASE
+    ═══════════════════════════════════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; transition: background-color .2s, border-color .2s, color .15s; }
+    body { background: var(--body-bg); color: var(--text-primary); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; margin: 0; }
+    .text-muted { color: var(--text-muted) !important; }
+
+    [data-theme="dark"] { color-scheme: dark; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+
+    /* Tables */
+    .table { 
+      --bs-table-bg: transparent; 
+      --bs-table-color: var(--text-primary); 
+      --bs-table-border-color: var(--border); 
+      color: var(--text-primary); 
+      background-color: transparent;
+    }
+    .table-hover tbody tr:hover { --bs-table-hover-bg: var(--surface-2); }
+    [data-theme="dark"] .table { 
+      --bs-table-striped-color: var(--text-primary); 
+      --bs-table-active-color: var(--text-primary); 
+      --bs-table-hover-color: var(--text-primary); 
+    }
+    .table thead th { background-color: var(--surface-2); border-bottom-color: var(--border); }
+    .table tbody td { background-color: transparent; border-bottom-color: var(--border); }
+
+    /* Cards & Components */
+    .card { 
+      --bs-card-bg: var(--surface); 
+      --bs-card-border-color: var(--border);
+      background: var(--surface); 
+      border: 1px solid var(--border);
+      border-radius: 12px; 
+      box-shadow: var(--shadow-sm);
+      transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+    }
+    .card:hover { 
+      box-shadow: var(--shadow-md); 
+      border-color: var(--brand-border);
+    }
+    .card-header-custom {
+      background: transparent; border-bottom: 1px solid var(--border);
+      padding: 14px 18px; border-radius: 12px 12px 0 0;
+      font-weight: 600; color: var(--text-primary); font-size: .88rem;
+      display: flex; align-items: center; gap: 8px;
+    }
+    [data-theme="dark"] .card-header-custom {
+      background: rgba(255,255,255,.02);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       SIDEBAR
+    ═══════════════════════════════════════════════════════════════════════ */
+    #sidebar {
+      position: fixed; top: 0; left: 0; height: 100vh; width: 240px;
+      background: var(--sidebar-bg);
+      display: flex; flex-direction: column; z-index: 100;
+      overflow-y: auto; overflow-x: hidden;
+      border-right: 1px solid var(--border);
+    }
+    .sidebar-brand { padding: 22px 20px 16px; border-bottom: 1px solid var(--border); }
+    .sidebar-brand .logo-mark {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg,#1A56DB,#7E3AF2);
+      margin-right: 10px; flex-shrink: 0;
+    }
+    .sidebar-brand .logo-text {
+      font-size: 1.2rem; font-weight: 800; color: var(--sidebar-brand-text);
+      letter-spacing: -0.5px; vertical-align: middle;
+    }
+    .sidebar-brand .logo-text span { color: var(--sidebar-brand-accent); }
+    .sidebar-brand small { display: block; color: var(--sidebar-text); font-size: .7rem; margin-top: 4px; }
+
+    .nav-section-label {
+      padding: 18px 20px 5px;
+      font-size: .65rem; font-weight: 700; letter-spacing: 1.2px;
+      color: var(--sidebar-label); text-transform: uppercase;
+    }
+    .sidebar-nav a {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 20px; color: var(--sidebar-text);
+      text-decoration: none; font-size: .86rem; font-weight: 500;
+      border-left: 3px solid transparent;
+      transition: all .15s;
+    }
+    .sidebar-nav a:hover   { color: var(--sidebar-hover-text); background: var(--sidebar-hover-bg); transform: translateX(4px); }
+    .sidebar-nav a.active  {
+      color: var(--sidebar-active-text); background: var(--sidebar-active-bg);
+      border-left-color: var(--sidebar-active-border); font-weight: 600;
+    }
+    .sidebar-nav a i { font-size: 1rem; width: 18px; text-align: center; flex-shrink: 0; }
+    .sidebar-foot { margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--border); }
+    .sidebar-foot small { color: var(--sidebar-foot); font-size: .68rem; line-height: 1.5; }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       MAIN / TOPBAR
+    ═══════════════════════════════════════════════════════════════════════ */
+    #main { margin-left: 240px; min-height: 100vh; }
+    .topbar {
+      background: var(--topbar-bg); border-bottom: 1px solid var(--topbar-border);
+      padding: 0 24px; height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 50;
+    }
+    .topbar-title {
+      font-weight: 700; font-size: 1rem; color: var(--text-primary);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .topbar-title .page-icon {
+      width: 28px; height: 28px; border-radius: 7px;
+      background: var(--brand-light); color: var(--brand);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: .85rem;
+    }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    .topbar-date { font-size: .8rem; color: var(--text-muted); }
+
+    /* Theme toggle */
+    .theme-toggle {
+      width: 36px; height: 36px; border-radius: 8px; border: 1.5px solid var(--border);
+      background: var(--surface-2); cursor: pointer; color: var(--text-muted);
+      display: flex; align-items: center; justify-content: center; font-size: 1rem;
+      transition: all .15s;
+    }
+    .theme-toggle:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-light); }
+    .notif-wrap { position: relative; }
+    .notif-btn {
+      width: 36px; height: 36px; border-radius: 8px; border: 1.5px solid var(--border);
+      background: var(--surface-2); cursor: pointer; color: var(--text-muted);
+      display: flex; align-items: center; justify-content: center; font-size: 1rem;
+      transition: all .15s; position: relative;
+    }
+    .notif-btn:hover,
+    .notif-btn[aria-expanded="true"] {
+      border-color: var(--brand); color: var(--brand); background: var(--brand-light); outline: none;
+    }
+    .notif-badge {
+      position: absolute; top: 6px; right: 6px; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--surface-2);
+    }
+    .notif-menu {
+      width: min(360px, calc(100vw - 2rem));
+      padding: 0; border: 1px solid var(--border); border-radius: 16px;
+      background: var(--surface); box-shadow: var(--shadow-md);
+      overflow: hidden;
+    }
+    .notif-menu::before {
+      content: "";
+      position: absolute; top: -7px; right: 16px; width: 14px; height: 14px;
+      background: var(--surface); border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+      transform: rotate(45deg);
+    }
+    .notif-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2);
+    }
+    .notif-title {
+      font-size: .78rem; font-weight: 800; color: var(--text-primary); letter-spacing: .4px; text-transform: uppercase;
+    }
+    .notif-count {
+      font-size: .7rem; font-weight: 700; color: var(--brand); background: var(--brand-light);
+      border: 1px solid var(--brand-border); border-radius: 999px; padding: 2px 8px;
+    }
+    .notif-list { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .notif-item {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 11px 12px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border);
+      white-space: normal;
+    }
+    .notif-icon {
+      width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: var(--brand-light); color: var(--brand); border: 1px solid var(--brand-border);
+    }
+    .notif-item.warn .notif-icon { color: var(--warn); }
+    .notif-item.danger .notif-icon { color: var(--danger); }
+    .notif-body { min-width: 0; }
+    .notif-text {
+      font-size: .8rem; line-height: 1.45; color: var(--text-primary);
+    }
+    .notif-empty {
+      padding: 14px; text-align: center; color: var(--text-muted); font-size: .8rem;
+    }
+
+    /* ── Admin user-view switcher ─────────────────────────────────────────── */
+    .view-switcher-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 20px; font-size: .78rem; font-weight: 600;
+      border: 1.5px solid var(--border); background: var(--surface-2);
+      color: var(--text-secondary); cursor: pointer; transition: all .15s;
+      white-space: nowrap;
+    }
+    .view-switcher-btn:hover,
+    .view-switcher-btn:focus,
+    .view-switcher-btn[aria-expanded="true"] {
+      border-color: var(--brand); color: var(--brand);
+      background: var(--brand-light); outline: none;
+    }
+    .view-switcher-btn .vs-icon { font-size: .85rem; color: var(--text-muted); transition: color .15s; }
+    .view-switcher-btn:hover .vs-icon,
+    .view-switcher-btn[aria-expanded="true"] .vs-icon { color: var(--brand); }
+
+    /* Viewing-other state: amber accent */
+    .view-switcher-btn.is-other {
+      border-color: #f59e0b; background: var(--surface-2); color: #92400e;
+    }
+    [data-theme="dark"] .view-switcher-btn.is-other { color: #fbbf24; }
+    .view-switcher-btn.is-other .vs-icon { color: #f59e0b; }
+    .view-switcher-btn.is-other:hover,
+    .view-switcher-btn.is-other[aria-expanded="true"] {
+      background: rgba(245,158,11,.12); border-color: #f59e0b;
+    }
+
+    /* Dropdown menu */
+    .view-switcher-menu {
+      min-width: 210px; padding: 6px 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: var(--shadow-md);
+      overflow: hidden;
+    }
+    .view-switcher-menu .dropdown-header {
+      font-size: .68rem; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--text-faint);
+      padding: 8px 14px 4px; display: flex; align-items: center; gap: 5px;
+    }
+    .view-switcher-menu .dropdown-divider { border-color: var(--border); margin: 4px 0; }
+
+    /* Each user row */
+    .vs-user-btn {
+      width: 100%; border: none; background: none; text-align: left;
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; color: var(--text-primary); font-size: .84rem;
+      cursor: pointer; transition: background .1s;
+    }
+    .vs-user-btn:hover { background: var(--surface-2); }
+    .vs-user-btn.active {
+      background: var(--brand-light); color: var(--brand); font-weight: 600;
+    }
+
+    /* Avatar circle */
+    .vs-avatar {
+      width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .7rem; font-weight: 800; text-transform: uppercase;
+      background: var(--surface-3); color: var(--text-muted);
+      transition: background .15s, color .15s;
+    }
+    .vs-avatar.active { background: var(--brand); color: #fff; }
+
+    /* Back-to-own-view row */
+    .vs-back-btn {
+      width: 100%; border: none; background: none; text-align: left;
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px; color: var(--brand); font-size: .8rem;
+      cursor: pointer; transition: background .1s; font-weight: 600;
+    }
+    .vs-back-btn:hover { background: var(--brand-light); }
+
+    .page-body { padding: 24px; }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       STAT CARDS
+    ═══════════════════════════════════════════════════════════════════════ */
+    .stat-card {
+      border-radius: 12px; padding: 18px 20px; color: #fff;
+      position: relative; overflow: hidden;
+      box-shadow: var(--shadow-md);
+      transition: transform .25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow .2s ease;
+    }
+    .stat-card:hover {
+      transform: translateY(-5px) scale(1.02);
+      box-shadow: 0 8px 24px rgba(0,0,0,.15);
+    }
+    .stat-card {
+      min-height: 164px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .stat-card .stat-icon { font-size: 2rem; opacity: .2; position: absolute; right: 16px; top: 14px; transition: transform .3s ease; }
+    .stat-card:hover .stat-icon { transform: scale(1.2) rotate(-10deg); opacity: .3; }
+    .stat-card .stat-label { font-size: .72rem; opacity: .8; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+    .stat-card .stat-value { font-size: 1.65rem; font-weight: 800; line-height: 1.1; margin-top: 8px; }
+    .stat-card .stat-sub   { font-size: .74rem; opacity: .72; margin-top: 10px; }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       BADGES
+    ═══════════════════════════════════════════════════════════════════════ */
+    .cat-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2.5px 10px; border-radius: 20px; font-size: .74rem; font-weight: 700;
+      color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+      letter-spacing: 0.2px;
+    }
+    .pm-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: .73rem; font-weight: 600;
+      background: var(--surface-2); color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .pm-cash   { background: #dcfce7; color: #166534; border-color: #bbf7d0; }
+    .pm-rupee  { background: #fee2e2; color: #991b1b; border-color: #fecaca; } /* Reddish for Rupee Card */
+    .pm-card   { background: #dbeafe; color: #1e40af; border-color: #bfdbfe; } /* Blue for other cards */
+    .pm-emi    { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; } /* Purple for EMI */
+    .pm-other  { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+
+    [data-theme="dark"] .pm-cash  { background: rgba(22,101,52,.3);  color: #4ade80; border-color: rgba(74,222,128,.2); }
+    [data-theme="dark"] .pm-rupee { background: rgba(153,27,27,.3);  color: #f87171; border-color: rgba(248,113,113,.2); }
+    [data-theme="dark"] .pm-card  { background: rgba(30,64,175,.3);  color: #93c5fd; border-color: rgba(147,197,253,.2); }
+    [data-theme="dark"] .pm-emi   { background: rgba(107,33,168,.3); color: #c084fc; border-color: rgba(192,132,252,.2); }
+    [data-theme="dark"] .pm-other { background: rgba(55,65,81,.3);  color: #d1d5db; border-color: rgba(209,213,219,.2); }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       TEMPLATE QUICK-ADD
+    ═══════════════════════════════════════════════════════════════════════ */
+    .template-btn {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 10px; padding: 10px 12px; cursor: pointer;
+      transition: all .15s; text-align: left; width: 100%; display: block;
+      text-decoration: none;
+    }
+    .template-btn:hover { border-color: var(--brand); background: var(--brand-light); }
+    .template-btn .t-name { font-weight: 600; font-size: .83rem; color: var(--text-primary); }
+    .template-btn .t-sub  { font-size: .73rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       FORMS
+    ═══════════════════════════════════════════════════════════════════════ */
+    .form-label { font-weight: 600; font-size: .83rem; color: var(--text-secondary); margin-bottom: 6px; }
+    .form-control, .form-select {
+      border-radius: 8px; border: 1.5px solid var(--border);
+      font-size: .9rem; background: var(--surface); color: var(--text-primary);
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--brand); box-shadow: 0 0 0 3px rgba(26,86,219,.12);
+      background: var(--surface);
+    }
+    .form-control::placeholder { color: var(--text-faint); }
+    [data-theme="dark"] .form-control,
+    [data-theme="dark"] .form-select { background: var(--surface-2); color: var(--text-primary); border-color: var(--border); }
+    [data-theme="dark"] .form-control:focus,
+    [data-theme="dark"] .form-select:focus { background: var(--surface-2); }
+    [data-theme="dark"] .form-select option { background: var(--surface-2); color: var(--text-primary); }
+
+    /* Amount big input */
+    .amount-wrap { position: relative; }
+    .amount-wrap .rupee-sym {
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      font-size: 1.3rem; color: var(--text-muted); font-weight: 700; z-index: 2;
+    }
+    .amount-wrap input { padding-left: 38px; font-size: 1.5rem; font-weight: 700; height: 58px; }
+
+    /* Payment method selector */
+    .pm-selector label {
+      border: 2px solid var(--border); border-radius: 8px; padding: 7px 13px;
+      cursor: pointer; font-weight: 500; font-size: .84rem; color: var(--text-secondary);
+      transition: all .15s; display: flex; align-items: center; gap: 6px;
+      background: var(--surface);
+    }
+    .pm-selector input[type=radio] { display: none; }
+    .pm-selector input[type=radio]:checked + label {
+      border-color: var(--brand); background: var(--brand-light); color: var(--brand);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       BUTTONS
+    ═══════════════════════════════════════════════════════════════════════ */
+    .btn-brand {
+      background: var(--brand); color: #fff; border: none; border-radius: 8px;
+      font-weight: 600; padding: 9px 20px; transition: all .15s;
+    }
+    .btn-brand:hover { background: var(--brand-hover); color: #fff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(26,86,219,.35); }
+    .btn-outline-secondary {
+      border-color: var(--border); color: var(--text-muted); background: transparent;
+    }
+    .btn-outline-secondary:hover { border-color: var(--border-2); color: var(--text-primary); background: var(--surface-2); }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       TABLES
+    ═══════════════════════════════════════════════════════════════════════ */
+    .expense-table { color: var(--text-primary); }
+    .expense-table th {
+      background: var(--surface-2); font-size: .76rem; font-weight: 700;
+      color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .expense-table td { vertical-align: middle; font-size: .87rem; border-bottom: 1px solid var(--border); color: var(--text-primary); }
+    .expense-table tbody tr:hover td { background: var(--surface-2); }
+    .expense-table tfoot td { border-top: 2px solid var(--border); }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       PERIOD FILTER PILLS
+    ═══════════════════════════════════════════════════════════════════════ */
+    .period-pill {
+      padding: 5px 14px; border-radius: 20px; border: 1.5px solid var(--border);
+      background: var(--surface); cursor: pointer; font-size: .82rem; font-weight: 600;
+      color: var(--text-muted); transition: all .15s; white-space: nowrap;
+    }
+    .period-pill:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-light); }
+    .period-pill.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+    /* ── Section Save Button (in card header) ── */
+    .section-save-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 14px; border-radius: 6px; font-size: .78rem; font-weight: 700;
+      border: 1.5px solid var(--brand); color: var(--brand);
+      background: transparent; cursor: pointer; transition: all .15s;
+      white-space: nowrap; letter-spacing: .2px; line-height: 1.4;
+    }
+    .section-save-btn:hover  { background: var(--brand); color: #fff; }
+    .section-save-btn:active { transform: scale(.97); }
+
+    /* ── Smart Insight Chips ── */
+    .insight-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 20px; font-size: .78rem; font-weight: 600;
+      white-space: normal; cursor: default; line-height: 1.35;
+      max-width: 100%; word-break: break-word;
+    }
+    .insight-chip.insight-info    { background: var(--brand-light);   color: var(--brand);   border: 1px solid var(--brand);  }
+    .insight-chip.insight-warning { background: rgba(227,160,8,.12);  color: #92400e;        border: 1px solid #E3A008;       }
+    .insight-chip.insight-danger  { background: rgba(240,82,82,.12);  color: #9b1c1c;        border: 1px solid #F05252;       }
+    .insight-chip.insight-success { background: rgba(14,159,110,.12); color: #05603A;        border: 1px solid #0E9F6E;       }
+    
+    [data-theme="dark"] .insight-chip.insight-info    { background: rgba(26,86,219,.15); color: #58a6ff; border-color: rgba(56,139,253,.3); }
+    [data-theme="dark"] .insight-chip.insight-warning { background: rgba(227,160,8,.15);  color: #fcd34d; border-color: rgba(227,160,8,.3); }
+    [data-theme="dark"] .insight-chip.insight-danger  { background: rgba(240,82,82,.15);  color: #fca5a5; border-color: rgba(240,82,82,.3); }
+    [data-theme="dark"] .insight-chip.insight-success { background: rgba(14,159,110,.15); color: #6ee7b7; border-color: rgba(14,159,110,.3); }
+
+    /* ── Expanded Calculator Styles ── */
+    .calc-mode-tabs {
+      display: flex; gap: 2px; padding: 0 12px;
+      background: var(--surface-2); border-bottom: 1px solid var(--border);
+    }
+    .calc-mode-btn {
+      flex: 1; padding: 6px 4px; font-size: .68rem; font-weight: 700;
+      text-transform: uppercase; border: none; background: none;
+      color: var(--text-muted); border-bottom: 2px solid transparent;
+      transition: all .2s;
+    }
+    .calc-mode-btn.active {
+      color: var(--brand); border-bottom-color: var(--brand);
+    }
+
+    .emi-calc-view { display: none; padding: 4px 0; }
+    .emi-input-group { margin-bottom: 8px; }
+    .emi-input-group label { display: block; font-size: .65rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px; }
+    .emi-input-group input { width: 100%; height: 32px; font-size: .85rem; padding: 0 8px; border-radius: 6px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-primary); }
+    .emi-result-box {
+      background: var(--brand-light); border: 1px solid var(--brand-border);
+      border-radius: 10px; padding: 8px 10px; margin-top: 10px;
+    }
+    .emi-res-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+    .emi-res-label { font-size: .68rem; color: var(--text-secondary); }
+    .emi-res-val { font-size: .88rem; font-weight: 800; color: var(--brand); }
+    .emi-total-val { font-size: .75rem; color: var(--text-primary); font-weight: 700; }
+
+    .sci-calc-view { display: none; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       CHART CARDS
+    ═══════════════════════════════════════════════════════════════════════ */
+    .chart-card {
+      background: var(--surface); border-radius: 12px;
+      border: 1px solid var(--border); padding: 18px;
+      box-shadow: var(--shadow-sm);
+    }
+    .chart-card .chart-title {
+      font-weight: 700; color: var(--text-primary); font-size: .9rem;
+      margin-bottom: 14px; display: flex; align-items: center; gap: 7px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       PAGINATION
+    ═══════════════════════════════════════════════════════════════════════ */
+    .pagination .page-link {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text-secondary);
+      padding: 6px 12px;
+    }
+    .pagination .page-link:hover {
+      background: var(--brand-light);
+      border-color: var(--brand);
+      color: var(--brand);
+    }
+    .pagination .page-item.active .page-link {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #fff;
+    }
+    .pagination .page-item.disabled .page-link {
+      background: var(--surface-2);
+      border-color: var(--border);
+      color: var(--text-faint);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       LIST GROUP
+    ═══════════════════════════════════════════════════════════════════════ */
+    .list-group-item {
+      background: var(--surface); border-color: var(--border); color: var(--text-primary);
+    }
+    .list-group-item:hover { background: var(--surface-2); }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       MISC
+    ═══════════════════════════════════════════════════════════════════════ */
+    .billing-banner {
+      background: var(--brand-light); border: 1px solid var(--brand-border);
+      border-radius: 10px; padding: 9px 16px; margin-bottom: 20px;
+    }
+    [data-theme="dark"] .billing-banner {
+      background: #161b22; border-color: #30363d;
+    }
+    .stat-mini {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; text-align: center;
+    }
+    [data-theme="dark"] .stat-mini {
+      background: #1c2128; border-color: #30363d;
+    }
+    .stat-mini .v { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); }
+    .stat-mini .l { font-size: .73rem; color: var(--text-muted); font-weight: 500; margin-top: 2px; }
+
+    .progress { background: var(--surface-2); }
+    [data-theme="dark"] .input-group-text {
+      background: var(--surface-2); border-color: var(--border); color: var(--text-muted);
+    }
+    code { background: var(--surface-2); color: var(--brand); padding: 2px 6px; border-radius: 4px; font-size: .85em; }
+
+    /* Toast */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+
+    /* FABs */
+    .fab {
+      position: fixed; bottom: 28px; right: 28px; z-index: 200;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--brand); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 16px rgba(26,86,219,.4);
+      text-decoration: none; font-size: 1.5rem;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .fab:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(26,86,219,.55); color: #fff; }
+
+    .fab-calc {
+      bottom: 90px;
+      background: var(--accent);
+      box-shadow: 0 4px 16px rgba(14,159,110,.4);
+    }
+    .fab-calc:hover { box-shadow: 0 6px 20px rgba(14,159,110,.55); }
+
+    /* ── Calculator Floating Panel ── */
+    #calcPanel {
+      position: fixed;
+      bottom: 90px; right: 90px;
+      width: 300px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.18);
+      z-index: 1050;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #calcPanel.open { display: flex; }
+    #calcDragHandle {
+      padding: 10px 14px 8px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+    #calcDragHandle:active { cursor: grabbing; }
+    #calcPanelBody { padding: 12px; }
+
+    .calc-display {
+      background: var(--surface-2);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      text-align: right;
+      margin-bottom: 10px;
+    }
+    .calc-display .calc-expr { font-size: 0.72rem; color: var(--text-faint); min-height: 1rem; overflow-x: auto; white-space: nowrap; }
+    .calc-display .calc-result { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); overflow-x: auto; }
+
+    .calc-history {
+      max-height: 90px;
+      overflow-y: auto;
+      font-size: 0.7rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      color: var(--text-secondary);
+    }
+    .calc-history-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 6px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin-bottom: 2px;
+    }
+    .calc-history-item:hover { background: var(--surface-3); }
+    .calc-history-item .h-expr { color: var(--text-muted); }
+    .calc-history-item .h-res { color: var(--brand); font-weight: 700; }
+    [data-theme="dark"] .calc-history-item .h-res { color: var(--sidebar-brand-accent); }
+
+    .calc-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .calc-btn {
+      height: 40px;
+      border-radius: 8px;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      font-weight: 600;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s;
+      cursor: pointer;
+    }
+    .calc-btn:hover { background: var(--surface-2); border-color: var(--border-2); }
+    .calc-btn:active { transform: scale(0.95); }
+    .calc-btn.op { color: var(--brand); background: var(--brand-light); border-color: var(--brand-border); }
+    .calc-btn.eq { color: #fff; background: var(--brand); border-color: var(--brand); }
+    .calc-btn.ac { color: var(--danger); }
+
+    /* Modal Theme Overrides */
+    .modal-content { background-color: var(--surface); color: var(--text-primary); border: 1px solid var(--border); }
+    .modal-header { border-bottom: 1px solid var(--border); }
+    [data-theme="dark"] .btn-close { filter: invert(1) grayscale(1) brightness(2); }
+
+    .nav-tabs-custom {
+      display: inline-flex;
+      gap: .5rem;
+      padding: .35rem;
+      margin-bottom: 1rem;
+      border-radius: 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+    .nav-link-custom {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      border-radius: 10px;
+      padding: .65rem 1rem;
+      font-size: .92rem;
+      font-weight: 700;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      transition: all .15s ease;
+    }
+    .nav-link-custom:hover {
+      color: var(--brand);
+      background: var(--brand-light);
+      border-color: var(--brand-border);
+    }
+    .nav-link-custom.active {
+      background: var(--brand);
+      color: #fff;
+      border-color: var(--brand);
+      box-shadow: 0 6px 18px rgba(26,86,219,.18);
+    }
+
+    .scan-area {
+      border: 2px dashed var(--border-2);
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-align: center;
+      background: var(--surface-2);
+      cursor: pointer;
+    }
+    .preview-img-container {
+      display: none;
+      margin-top: 1rem;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--surface-2);
+      max-width: 100%;
+    }
+    .preview-img-container img,
+    .preview-img-container canvas {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      max-height: 50vh;
+      object-fit: contain;
+      background: #fff;
+    }
+    #addExpenseModal .modal-dialog {
+      max-width: min(720px, calc(100vw - 2rem));
+    }
+    #addExpenseModal .modal-body {
+      overflow-x: hidden;
+    }
+    #modalReviewGridContainer .table-responsive {
+      overflow-x: auto;
+      max-width: 100%;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SPENDBOT CHAT WIDGET
+    ══════════════════════════════════════════════════════════════════════ */
+    .fab-chat {
+      bottom: 152px;
+      background: #7E3AF2;
+      box-shadow: 0 4px 16px rgba(126,58,242,.4);
+    }
+    .fab-chat:hover {
+      box-shadow: 0 6px 20px rgba(126,58,242,.55);
+    }
+
+    #chatPanel {
+      position: fixed;
+      bottom: 90px; right: 90px;
+      width: 340px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.18);
+      z-index: 1050;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #chatPanel.open { display: flex; }
+
+    #chatDragHandle {
+      padding: 11px 14px 10px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: grab; user-select: none; flex-shrink: 0;
+    }
+    #chatDragHandle:active { cursor: grabbing; }
+
+    #chatMessages {
+      flex: 1; overflow-y: auto;
+      padding: 14px 12px;
+      display: flex; flex-direction: column; gap: 10px;
+      min-height: 200px; max-height: 290px;
+    }
+    .chat-msg { display: flex; gap: 8px; align-items: flex-end; }
+    .chat-msg.user { flex-direction: row-reverse; }
+
+    .chat-bubble {
+      max-width: 80%; padding: 8px 12px;
+      font-size: .84rem; line-height: 1.48;
+    }
+    .chat-msg.bot  .chat-bubble {
+      background: var(--surface-2); border: 1px solid var(--border);
+      color: var(--text-primary); border-radius: 4px 12px 12px 12px;
+    }
+    .chat-msg.user .chat-bubble {
+      background: #7E3AF2; color: #fff;
+      border-radius: 12px 4px 12px 12px;
+    }
+    .chat-avatar {
+      width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: .8rem;
+    }
+    .chat-msg.bot  .chat-avatar { background: transparent; color:#fff; }
+    .chat-msg.user .chat-avatar { background: var(--brand); color:#fff; font-size:.7rem; font-weight:800; }
+
+    .chat-suggestions {
+      display: flex; flex-wrap: wrap; gap: 5px;
+      padding: 7px 12px; border-top: 1px solid var(--border); flex-shrink: 0;
+    }
+    .chat-chip {
+      padding: 3px 10px; border-radius: 20px; font-size: .73rem; font-weight: 600;
+      border: 1.5px solid var(--brand-border); background: var(--brand-light);
+      color: var(--brand); cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .chat-chip:hover { background: #7E3AF2; color: #fff; border-color: #7E3AF2; }
+
+    #chatInputRow {
+      padding: 9px 12px; border-top: 1px solid var(--border);
+      display: flex; gap: 7px; align-items: center; flex-shrink: 0;
+    }
+    #chatInput {
+      flex: 1; border: 1.5px solid var(--border); border-radius: 8px;
+      padding: 7px 11px; font-size: .84rem;
+      background: var(--surface); color: var(--text-primary);
+      outline: none; transition: border-color .15s, box-shadow .15s;
+    }
+    #chatInput:focus {
+      border-color: #7E3AF2;
+      box-shadow: 0 0 0 3px rgba(126,58,242,.12);
+    }
+    #chatSendBtn {
+      width: 34px; height: 34px; border-radius: 8px; border: none;
+      background: #7E3AF2; color: #fff; font-size: .9rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .15s, transform .1s; flex-shrink: 0;
+    }
+    #chatSendBtn:hover   { background: #6d28d9; transform: scale(1.06); }
+    #chatSendBtn:disabled{ background: var(--border-2); cursor: default; transform: none; }
+
+    /* Typing indicator */
+    .chat-typing { display: flex; gap: 4px; align-items: center; padding: 3px 2px; }
+    .chat-typing span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--text-faint);
+      animation: chatBounce 1.2s infinite ease-in-out;
+    }
+    .chat-typing span:nth-child(2) { animation-delay: .2s; }
+    .chat-typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes chatBounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40%           { transform: translateY(-6px); }
+    }
+
+    /* ── Sidebar transition (needed for mobile slide) ── */
+    #sidebar { transition: transform .25s cubic-bezier(.4,0,.2,1); }
+
+    /* ── Sidebar overlay (mobile backdrop) ── */
+    #sidebarOverlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 99;
+    }
+    #sidebarOverlay.show { display: block; }
+
+    /* ── Hamburger button (hidden on desktop) ── */
+    #sidebarToggle {
+      display: none; align-items: center; justify-content: center;
+      width: 36px; height: 36px; border-radius: 8px; border: none;
+      background: var(--surface-2); color: var(--text-primary);
+      cursor: pointer; font-size: 1.1rem; flex-shrink: 0;
+      margin-right: 8px;
+    }
+
+    @media (max-width: 768px) {
+      #sidebar      { transform: translateX(-100%); }
+      #sidebar.open { transform: translateX(0); z-index: 200; }
+      #main         { margin-left: 0; }
+      #sidebarToggle { display: inline-flex; }
+      /* Tighten topbar padding on small screens */
+      .topbar { padding: 0 14px; }
+      .topbar-date { display: none; }      /* hide date on very small screens */
+      .main-content { padding: 16px 14px; }
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <script>
+    (function() {
+      const saved = localStorage.getItem('ss-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+    })();
+  </script>
+
+<!-- ── Sidebar ─────────────────────────────────────────────────────────────── -->
+<nav id="sidebar">
+  <div class="sidebar-brand">
+    <div class="d-flex align-items-center">
+      <div class="logo-mark">
+        <i class="bi bi-bar-chart-fill" style="color:#fff;font-size:.85rem;"></i>
+      </div>
+      <span class="logo-text">Spend<span>Sight</span></span>
+    </div>
+    <small>Personal Finance Tracker</small>
+  </div>
+
+  <div class="nav-section-label">Main</div>
+  <div class="sidebar-nav">
+    <a href="{{ url_for('dashboard') }}"        class="{{ 'active' if request.endpoint == 'dashboard' }}">
+      <i class="bi bi-grid-fill"></i> Dashboard
+    </a>
+    <a href="{{ url_for('view_expenses') }}"    class="{{ 'active' if request.endpoint == 'view_expenses' }}">
+      <i class="bi bi-list-ul"></i> All Expenses
+    </a>
+  </div>
+
+  <div class="nav-section-label">Insights</div>
+  <div class="sidebar-nav">
+    <a href="{{ url_for('analytics') }}"        class="{{ 'active' if request.endpoint == 'analytics' }}">
+      <i class="bi bi-bar-chart-fill"></i> Analytics
+    </a>
+    <a href="{{ url_for('purchase_audit') }}"   class="{{ 'active' if request.endpoint == 'purchase_audit' }}">
+      <i class="bi bi-basket2-fill"></i> Purchase Audit
+    </a>
+    <a href="{{ url_for('income') }}"           class="{{ 'active' if request.endpoint == 'income' }}">
+      <i class="bi bi-cash-stack"></i> Income &amp; Budget
+    </a>
+    <a href="{{ url_for('manage_templates') }}" class="{{ 'active' if request.endpoint == 'manage_templates' }}">
+      <i class="bi bi-lightning-fill"></i> Templates
+    </a>
+  </div>
+
+  <div class="nav-section-label">Config</div>
+  <div class="sidebar-nav">
+    <a href="{{ url_for('settings') }}"         class="{{ 'active' if request.endpoint == 'settings' }}">
+      <i class="bi bi-gear-fill"></i> Settings
+    </a>
+    {% if current_user.role == 'admin' %}
+    <a href="{{ url_for('admin_dashboard') }}" class="{{ 'active' if request.endpoint == 'admin_dashboard' }}">
+      <i class="bi bi-people-fill"></i> Users
+    </a>
+    {% endif %}
+    <a href="{{ url_for('logout') }}" class="text-danger">
+      <i class="bi bi-box-arrow-right"></i> Logout
+    </a>
+  </div>
+
+  <div class="sidebar-foot">
+    <small>
+      <i class="bi bi-shield-lock-fill" style="color:#0E9F6E;"></i>
+      Data stored locally<br>
+      <span style="color:var(--sidebar-label);">expenses.json</span>
+    </small>
+  </div>
+</nav>
+
+<!-- ── Main ──────────────────────────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- Sidebar backdrop (mobile) -->
+  <div id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-title">
+      <button id="sidebarToggle" onclick="toggleSidebar()" aria-label="Open menu">
+        <i class="bi bi-list"></i>
+      </button>
+      <span class="page-icon">
+        {% if request.endpoint == 'dashboard' %}<i class="bi bi-grid-fill"></i>
+        {% elif request.endpoint == 'add_expense' %}<i class="bi bi-plus-circle-fill"></i>
+        {% elif request.endpoint == 'view_expenses' %}<i class="bi bi-list-ul"></i>
+        {% elif request.endpoint == 'analytics' %}<i class="bi bi-bar-chart-fill"></i>
+        {% elif request.endpoint == 'purchase_audit' %}<i class="bi bi-basket2-fill"></i>
+        {% elif request.endpoint == 'manage_templates' %}<i class="bi bi-lightning-fill"></i>
+        {% elif request.endpoint == 'settings' %}<i class="bi bi-gear-fill"></i>
+        {% else %}<i class="bi bi-circle-fill"></i>{% endif %}
+      </span>
+      {% block page_title %}SpendSight{% endblock %}
+    </div>
+    <div class="topbar-right">
+      <span class="topbar-date">
+        <i class="bi bi-calendar3"></i> {{ today_str() }}
+      </span>
+
+      {% if current_user.is_authenticated and current_user.role == 'admin' and all_users %}
+      {# ── Admin user-view switcher ─────────────────────────────────────── #}
+      {% set is_own = (current_view_id == current_user.id) %}
+      <div class="dropdown">
+        <button type="button"
+                class="view-switcher-btn dropdown-toggle {{ '' if is_own else 'is-other' }}"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                title="Viewing data for: {{ current_view_id }}">
+          <i class="bi {{ 'bi-eye' if is_own else 'bi-eye-fill' }} vs-icon"></i>
+          {% if is_own %}
+            <span>{{ current_user.id }}</span>
+          {% else %}
+            <span>Viewing: <strong>{{ current_view_id }}</strong></span>
+          {% endif %}
+        </button>
+
+        <ul class="dropdown-menu dropdown-menu-end view-switcher-menu">
+          <li>
+            <span class="dropdown-header">
+              <i class="bi bi-people-fill"></i> Switch user view
+            </span>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+
+          {% for u in all_users %}
+          {% set is_active = (u.id == current_view_id) %}
+          <li>
+            <form method="POST" action="{{ url_for('admin_switch_user') }}" class="m-0">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <button type="submit" class="vs-user-btn {{ 'active' if is_active else '' }}">
+                <span class="vs-avatar {{ 'active' if is_active else '' }}">{{ u.id[0] }}</span>
+                <span class="flex-grow-1">
+                  {{ u.id }}
+                  {% if u.role == 'admin' %}
+                    <small style="color:var(--text-faint); font-size:.7rem; margin-left:3px;">(admin)</small>
+                  {% endif %}
+                </span>
+                {% if is_active %}
+                  <i class="bi bi-check2-circle" style="font-size:.9rem;"></i>
+                {% endif %}
+              </button>
+            </form>
+          </li>
+          {% endfor %}
+
+          {% if not is_own %}
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <form method="POST" action="{{ url_for('admin_switch_user') }}" class="m-0">
+              <input type="hidden" name="user_id" value="{{ current_user.id }}">
+              <button type="submit" class="vs-back-btn">
+                <i class="bi bi-arrow-return-left"></i> Back to my view
+              </button>
+            </form>
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <div class="dropdown notif-wrap">
+        <button type="button"
+                class="notif-btn"
+                data-bs-toggle="dropdown"
+                data-bs-auto-close="outside"
+                aria-expanded="false"
+                title="Notifications">
+          <i class="bi bi-bell-fill"></i>
+          {% if smart_insights and smart_insights|length %}
+          <span class="notif-badge"></span>
+          {% endif %}
+        </button>
+        <div class="dropdown-menu dropdown-menu-end notif-menu">
+          <div class="notif-header">
+            <span class="notif-title">Notifications</span>
+            {% if smart_insights and smart_insights|length %}
+            <span class="notif-count">{{ smart_insights|length }} new</span>
+            {% endif %}
+          </div>
+          {% if smart_insights and smart_insights|length %}
+          <div class="notif-list">
+            {% for ins in smart_insights[:2] %}
+            <div class="notif-item {{ ins.type }}">
+              <span class="notif-icon"><i class="bi {{ ins.icon }}"></i></span>
+              <div class="notif-body">
+                <div class="notif-text">{{ ins.text | safe }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="notif-empty">No new notifications.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode" id="themeBtn">
+        <i class="bi bi-moon-fill" id="themeIcon"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Flash toasts -->
+  <div class="toast-container">
+    {% for cat, msg in get_flashed_messages(with_categories=True) %}
+    <div class="toast align-items-center text-bg-{{ 'success' if cat == 'success' else ('danger' if cat == 'danger' else 'info') }} border-0 show mb-2"
+         role="alert" data-bs-autohide="true" data-bs-delay="3200">
+      <div class="d-flex">
+        <div class="toast-body fw-semibold">{{ msg }}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="page-body">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<!-- Add Expense Modal -->
+<div class="modal fade" id="addExpenseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="border-radius:15px; border:none; box-shadow:var(--shadow-md);">
+      <div class="modal-header border-0 pb-0 position-relative">
+        <h5 class="modal-title fw-bold">Add Expense</h5>
+        <button type="button" class="btn-close position-absolute" data-bs-dismiss="modal" aria-label="Close" style="top:20px; right:20px; font-size:.8rem;"></button>
+      </div>
+      <div class="modal-body p-4">
+        <!-- Tabs -->
+        <div class="nav-tabs-custom">
+          <button class="nav-link-custom active" onclick="switchModalTab('manual')" id="modalTabManual">
+            <i class="bi bi-pencil-square me-1"></i> Manual Entry
+          </button>
+          <button class="nav-link-custom" onclick="switchModalTab('scan')" id="modalTabScan">
+            <i class="bi bi-camera-fill me-1"></i> Scan Receipt
+          </button>
+        </div>
+
+        <!-- Manual Pane -->
+        <div id="modalManualPane">
+          <form method="POST" action="{{ url_for('add_expense') }}">
+            <!-- Amount -->
+            <div class="mb-4">
+              <label class="form-label">Amount ({{ currency_symbol }}) <span style="color:var(--danger)">*</span></label>
+              <div class="amount-wrap">
+                <span class="rupee-sym" style="font-size:1.3rem; top:50%;">{{ currency_symbol }}</span>
+                <input type="number" step="0.01" min="0.01" name="amount" id="modalAmount"
+                       class="form-control form-control-lg fw-bold" placeholder="0" required
+                       style="padding-left:38px; height:58px; font-size:1.5rem;">
+              </div>
+            </div>
+
+            <!-- Category + Subcategory -->
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label">Category <span style="color:var(--danger)">*</span></label>
+                <select name="category" id="modalCategorySelect" class="form-select" required onchange="onModalCategoryChange()">
+                  <option value="" disabled selected>Select…</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Subcategory <span style="color:var(--danger)">*</span></label>
+                <select name="subcategory" id="modalSubcategorySelect" class="form-select" required>
+                  <option value="" disabled selected>Select category first</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- New category -->
+            <div class="mb-3" id="modalNewCatRow" style="display:none;">
+              <label class="form-label">New category name</label>
+              <input type="text" name="new_category" id="modalNewCategory"
+                     class="form-control form-control-sm" placeholder="e.g. Health, Gift…">
+              <div id="modalCatError" class="text-danger small mt-1" style="display:none;">Category already exists!</div>
+            </div>
+
+            <!-- New subcategory -->
+            <div class="mb-3" id="modalNewSubRow" style="display:none;">
+              <label class="form-label">New subcategory name</label>
+              <input type="text" name="new_subcategory" id="modalNewSubcategory"
+                     class="form-control form-control-sm" placeholder="e.g. Coconut Oil, Poha…">
+            </div>
+
+            <!-- Date & Payment -->
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label">Date</label>
+                <input type="date" name="date" value="{{ today_str() }}" class="form-control">
+              </div>
+              <div class="col-6">
+                <label class="form-label">Payment Method</label>
+                <select name="payment_method" class="form-select" id="modalPaymentSelect">
+                </select>
+              </div>
+            </div>
+
+            <div class="row g-3 mb-4">
+              <div class="col-6">
+                <label class="form-label">Quantity</label>
+                <input type="number" step="0.001" min="0" name="quantity" class="form-control" placeholder="e.g. 2">
+              </div>
+              <div class="col-6">
+                <label class="form-label">Unit</label>
+                <input type="text" name="unit" class="form-control" list="unitOptionsList" placeholder="e.g. kg, pcs, L">
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="mb-3">
+              <label class="form-label">Notes <small class="fw-normal" style="color:var(--text-muted)">(optional)</small></label>
+              <textarea name="notes" class="form-control" rows="2" placeholder="Any detail…"></textarea>
+            </div>
+
+            <div class="modal-footer border-0 pt-0 px-0">
+              <button type="button" class="btn btn-outline-secondary btn-sm px-3" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-brand btn-sm px-4">
+                <i class="bi bi-check-lg me-1"></i> Save Expense
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Scan Pane -->
+        <div id="modalScanPane" style="display:none;">
+          <div id="modalUploadStep">
+            <div class="scan-area" onclick="document.getElementById('modalReceiptInput').click()">
+              <i class="bi bi-file-earmark-pdf-fill" style="color:var(--danger)"></i>
+              <h6 class="mb-1">Upload Receipt (Image or PDF)</h6>
+              <p class="text-muted small mb-0">Local processing • Fast & Private</p>
+              <input type="file" id="modalReceiptInput" accept="image/*,application/pdf" style="display:none;" onchange="handleModalFileSelect(this)">
+            </div>
+
+            <div class="preview-img-container" id="modalPreviewContainer">
+              <img id="modalReceiptPreview" src="" alt="Receipt Preview" style="display:none;">
+              <canvas id="pdfCanvas" style="display:none;"></canvas>
+              <div class="p-3 bg-white border-top d-flex justify-content-between align-items-center" id="previewActions">
+                <span class="small text-muted" id="modalFileName">No file selected</span>
+                <div>
+                  <button class="btn btn-sm btn-outline-danger me-2" onclick="resetModalUpload()">Cancel</button>
+                  <button class="btn btn-sm btn-brand" id="modalProcessBtn" onclick="processModalReceipt()">
+                    <i class="bi bi-magic me-1"></i> Scan
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- OCR Progress -->
+          <div class="ocr-progress" id="modalOcrProgress">
+            <div class="d-flex justify-content-between mb-2">
+              <span class="small fw-bold" id="modalOcrStatus">Initializing...</span>
+              <span class="small fw-bold" id="modalOcrPct">0%</span>
+            </div>
+            <div class="progress" style="height:8px;">
+              <div class="progress-bar progress-bar-striped progress-bar-animated bg-brand" id="modalOcrBar" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Review Grid -->
+          <div id="modalReviewGridContainer" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0 fw-bold">Review Items</h6>
+              <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="addModalReviewRow()" style="font-size:0.75rem;">
+                <i class="bi bi-plus-lg"></i> Add Row
+              </button>
+            </div>
+            
+            <div class="table-responsive" style="max-height: 250px;">
+              <table class="table table-bordered review-table mb-0">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th style="width:100px;">Amount</th>
+                    <th style="width:120px;">Qty</th>
+                    <th style="width:120px;">Unit</th>
+                    <th style="width:150px;">Category</th>
+                    <th style="width:180px;">Subcategory</th>
+                    <th style="width:40px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="modalReviewBody">
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mt-4 pt-3 border-top">
+              <div class="row g-2 mb-3">
+                <div class="col-6">
+                  <label class="form-label small">Payment Method</label>
+                  <select id="modalBulkPayment" class="form-select form-select-sm"></select>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small">Common Date</label>
+                  <input type="date" id="modalBulkDate" value="{{ today_str() }}" class="form-control form-control-sm">
+                </div>
+              </div>
+              <button class="btn btn-brand btn-sm w-100" onclick="saveModalBulkExpenses()">
+                <i class="bi bi-check-all me-1"></i> OK - Save Verified Entries
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<datalist id="unitOptionsList">
+  {% for unit in unit_options %}<option value="{{ unit }}">{% endfor %}
+</datalist>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // ── Global Add Expense Modal Logic ────────────────────────────────────
+  const addModalEl = document.getElementById('addExpenseModal');
+  if (addModalEl) {
+    addModalEl.addEventListener('shown.bs.modal', () => {
+      document.getElementById('modalAmount').focus();
+      initAddModalData();
+    });
+  }
+
+  let modalOcrFile = null;
+  let modalOcrObjectUrl = null;
+  let modalPdfDoc = null;
+  const REVIEW_UNIT_OPTIONS = {{ unit_options|tojson }};
+
+  async function initAddModalData() {
+    const res = await fetch('/api/init-data');
+    const d = await res.json();
+    
+    const catSel = document.getElementById('modalCategorySelect');
+    if (catSel.options.length <= 1) {
+      d.categories.forEach(c => {
+        const o = document.createElement('option'); o.value = c; o.textContent = c; catSel.appendChild(o);
+      });
+      const other = document.createElement('option');
+      other.value = '__new__'; other.textContent = '+ Add new…';
+      catSel.appendChild(other);
+      catSel.dataset.existingCategories = JSON.stringify(d.categories);
+    }
+
+    const pmSel = document.getElementById('modalPaymentSelect');
+    if (pmSel.options.length === 0) {
+      d.payment_methods.forEach(p => {
+        const o = document.createElement('option'); o.value = p; o.textContent = p; pmSel.appendChild(o);
+      });
+    }
+
+    const bulkPmSel = document.getElementById('modalBulkPayment');
+    if (bulkPmSel && bulkPmSel.options.length === 0) {
+      d.payment_methods.forEach(p => {
+        const o = document.createElement('option'); o.value = p; o.textContent = p; bulkPmSel.appendChild(o);
+      });
+    }
+  }
+
+  function onModalCategoryChange() {
+    const sel = document.getElementById('modalCategorySelect');
+    const newCatRow = document.getElementById('modalNewCatRow');
+    const submitBtn = document.querySelector('#modalManualPane button[type="submit"]');
+    const errorEl = document.getElementById('modalCatError');
+
+    if (sel.value === '__new__') {
+      newCatRow.style.display = 'block';
+      document.getElementById('modalNewCategory').focus();
+      const subSel = document.getElementById('modalSubcategorySelect');
+      subSel.innerHTML = '<option value="__new__" selected>+ Add new…</option>';
+      document.getElementById('modalNewSubRow').style.display = 'block';
+      subSel.onchange = function() {
+        document.getElementById('modalNewSubRow').style.display = this.value === '__new__' ? 'block' : 'none';
+      };
+      // Trigger duplicate check immediately for current value of new category input
+      const newCatInp = document.getElementById('modalNewCategory');
+      if (newCatInp.value.trim()) {
+        const val = newCatInp.value.trim().toLowerCase();
+        const existing = JSON.parse(sel.dataset.existingCategories || '[]');
+        if (existing.some(c => c.toLowerCase() === val)) {
+          errorEl.style.display = 'block';
+          submitBtn.disabled = true;
+        }
+      }
+    } else {
+      newCatRow.style.display = 'none';
+      errorEl.style.display = 'none';
+      submitBtn.disabled = false;
+      loadModalSubcategories();
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const newCatInp = document.getElementById('modalNewCategory');
+    if (newCatInp) {
+      newCatInp.addEventListener('input', function() {
+        const val = this.value.trim().toLowerCase();
+        if (!val) {
+          document.getElementById('modalCatError').style.display = 'none';
+          document.querySelector('#modalManualPane button[type="submit"]').disabled = false;
+          return;
+        }
+        const existing = JSON.parse(document.getElementById('modalCategorySelect').dataset.existingCategories || '[]');
+        const errorEl = document.getElementById('modalCatError');
+        const submitBtn = document.querySelector('#modalManualPane button[type="submit"]');
+        
+        if (existing.some(c => c.toLowerCase() === val)) {
+          errorEl.style.display = 'block';
+          submitBtn.disabled = true;
+        } else {
+          errorEl.style.display = 'none';
+          submitBtn.disabled = false;
+        }
+      });
+    }
+  });
+
+  async function loadModalSubcategories() {
+    const cat = document.getElementById('modalCategorySelect').value;
+    const res = await fetch(`/api/subcategories/${encodeURIComponent(cat)}`);
+    const subs = await res.json();
+    
+    const sel = document.getElementById('modalSubcategorySelect');
+    sel.innerHTML = '<option value="" disabled selected>Select subcategory</option>';
+    subs.forEach(s => {
+      const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o);
+    });
+    const other = document.createElement('option');
+    other.value = '__new__'; other.textContent = '+ Add new…'; sel.appendChild(other);
+    
+    sel.onchange = function() {
+      document.getElementById('modalNewSubRow').style.display = this.value === '__new__' ? 'block' : 'none';
+    };
+    // Ensure new sub row is hidden if we just switched back from __new__ category
+    document.getElementById('modalNewSubRow').style.display = 'none';
+  }
+
+  // Handle global Escape key for modal (Bootstrap does this, but for extra safety/hotkey)
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const m = bootstrap.Modal.getInstance(addModalEl);
+      if (m) m.hide();
+    }
+  });
+
+  // ── Theme ──────────────────────────────────────────────────────────────
+  const THEMES = { light: { icon: 'bi-moon-fill',  label: 'Switch to dark'  },
+                   dark:  { icon: 'bi-sun-fill',   label: 'Switch to light' } };
+
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    const ico = document.getElementById('themeIcon');
+    const btn = document.getElementById('themeBtn');
+    if (ico) ico.className = 'bi ' + THEMES[t].icon;
+    if (btn) btn.title = THEMES[t].label;
+    localStorage.setItem('ss-theme', t);
+  }
+  function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') || 'light';
+    applyTheme(cur === 'light' ? 'dark' : 'light');
+  }
+  // Apply saved theme immediately on load
+  (function() {
+    const saved = localStorage.getItem('ss-theme') || 'light';
+    applyTheme(saved);
+  })();
+
+  // Auto-dismiss toasts
+  document.querySelectorAll('.toast').forEach(el => new bootstrap.Toast(el).show());
+
+  // ── Currency config (injected from server) ────────────────────────────────
+  window.CURRENCY_SYMBOL = {{ currency_symbol|tojson }};
+  window.CURRENCY_CODE   = {{ currency_code|tojson }};
+
+  // ── INR formatter (shared across all pages) ────────────────────────────
+  function fmtINR(v) {
+    const sym  = window.CURRENCY_SYMBOL || '₹';
+    const code = window.CURRENCY_CODE   || 'INR';
+    const n = Math.round(parseFloat(v) || 0);
+    const s = String(Math.abs(n));
+    const sign = n < 0 ? '-' : '';
+    if (code === 'INR') {
+      if (s.length <= 3) return sign + sym + s;
+      const last3 = s.slice(-3);
+      let rest = s.slice(0, -3);
+      const groups = [];
+      while (rest.length > 2) { groups.unshift(rest.slice(-2)); rest = rest.slice(0, -2); }
+      if (rest) groups.unshift(rest);
+      return sign + sym + groups.join(',') + ',' + last3;
+    } else {
+      return sign + sym + Math.abs(n).toLocaleString();
+    }
+  }
+  window.fmtINR = fmtINR;
+
+  // ── Transaction Detail Modal Logic ────────────────────────────────────
+  let txModalInstance = null;
+  async function showTransactionDetails(type, value, start, end) {
+    console.log('Fetching details:', {type, value, start, end});
+    
+    const modalEl = document.getElementById('txDetailModal');
+    if (!txModalInstance) txModalInstance = new bootstrap.Modal(modalEl);
+    
+    const title = document.getElementById('txDetailTitle');
+    const body  = document.getElementById('txDetailBody');
+    
+    title.textContent = `${value} Details`;
+    body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-brand" role="status"></div></div>';
+    txModalInstance.show();
+
+    try {
+      if (!start || !end) throw new Error('Missing dates');
+      
+      let url = `/api/transactions-detail?start=${start}&end=${end}`;
+      if (type === 'category') url += `&category=${encodeURIComponent(value)}`;
+      else if (type === 'payment') url += `&payment=${encodeURIComponent(value)}`;
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      const data = await res.json();
+
+      // ── Special EMI progress view ──────────────────────────────────────
+      const isEmiView = (type === 'payment' && value === 'EMI') ||
+                        (type === 'category' && value.toLowerCase().includes('emi'));
+      if (isEmiView) {
+        const activeEmis = (data.emis || []).filter(e => e.is_active)
+                                            .sort((a, b) => a.remaining - b.remaining);
+        if (activeEmis.length === 0) {
+          body.innerHTML = '<p class="text-center py-4 text-muted">No active EMIs right now.</p>';
+          return;
+        }
+        body.innerHTML = activeEmis.map(emi => {
+          if (emi.type === 'emi') {
+            return `
+              <div class="mb-3 pb-3" style="border-bottom:1px solid var(--border);">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <div class="fw-bold" style="font-size:.88rem;color:var(--text-primary);">${emi.name}</div>
+                  <div class="fw-bold" style="font-size:.85rem;color:var(--warn);">${fmtINR(emi.amount)}<span style="font-size:.7rem;font-weight:400;color:var(--text-muted);">/mo</span></div>
+                </div>
+                <div class="d-flex justify-content-between mb-1" style="font-size:.72rem;color:var(--text-muted);">
+                  <span>${emi.paid} of ${emi.total} paid <span style="opacity:.75;">(${emi.remaining} month${emi.remaining !== 1 ? 's' : ''} remaining)</span></span>
+                  <span>${emi.progress_pct}%</span>
+                </div>
+                <div style="height:7px;background:var(--border);border-radius:99px;overflow:hidden;">
+                  <div style="width:${emi.progress_pct}%;height:100%;background:var(--accent);border-radius:99px;transition:width .4s ease;"></div>
+                </div>
+              </div>`;
+          } else {
+            return `
+              <div class="mb-3 pb-3" style="border-bottom:1px solid var(--border);">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <div class="fw-bold" style="font-size:.88rem;color:var(--text-primary);">${emi.name}</div>
+                  <div class="fw-bold" style="font-size:.85rem;color:var(--warn);">${fmtINR(emi.amount)}<span style="font-size:.7rem;font-weight:400;color:var(--text-muted);">/mo</span></div>
+                </div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                  <span class="badge" style="background:var(--accent-light); color:var(--accent); font-size:.65rem; border:1px solid var(--accent);">Ongoing Recurring</span>
+                  <span style="font-size:.72rem;color:var(--text-muted);">${emi.frequency.replace(/_/g, ' ')} · Due on ${emi.day_of_month}th</span>
+                </div>
+                <div style="font-size:.72rem;color:var(--text-muted);">Starts ${emi.month}</div>
+              </div>`;
+          }
+        }).join('');
+        return;
+      }
+
+      // ── Regular transactions view ───────────────────────────────────────
+      if ((!data.expenses || data.expenses.length === 0) && (!data.emis || data.emis.length === 0)) {
+        body.innerHTML = '<p class="text-center py-4 text-muted">No transactions found for this period.</p>';
+        return;
+      }
+
+      let html = `<div class="table-responsive"><table class="table table-sm expense-table mb-0">
+        <thead><tr><th>Date</th><th>Item</th><th class="text-end">Amount</th></tr></thead>
+        <tbody>`;
+
+      if (data.expenses) {
+        data.expenses.forEach(e => {
+          html += `<tr>
+            <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;">${e.date}</td>
+            <td>
+              <div class="fw-semibold" style="font-size:.82rem;">${e.subcategory}</div>
+              <div style="font-size:.7rem;color:var(--text-muted);">${e.payment_method}</div>
+            </td>
+            <td class="text-end fw-bold" style="font-size:.85rem;">${fmtINR(e.amount)}</td>
+          </tr>`;
+        });
+      }
+
+      // Include EMIs for non-EMI payment views (e.g. category drill-down)
+      if (data.emis && data.emis.length > 0) {
+        html += `<tr class="table-light"><td colspan="3" class="fw-bold py-2" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Fixed EMIs</td></tr>`;
+        data.emis.forEach(emi => {
+          const dateLabel = emi.month || 'EMI';
+          html += `<tr>
+            <td style="font-size:.75rem;color:var(--text-muted);">${dateLabel}</td>
+            <td>
+              <div class="fw-semibold" style="font-size:.82rem;">${emi.name}</div>
+              <div style="font-size:.7rem;color:var(--text-muted);">Monthly Fixed</div>
+            </td>
+            <td class="text-end fw-bold" style="font-size:.85rem;">${fmtINR(emi.amount)}</td>
+          </tr>`;
+        });
+      }
+
+      html += `</tbody></table></div>`;
+      body.innerHTML = html;
+    } catch (err) {
+      console.error('Modal Error:', err);
+      body.innerHTML = `<p class="text-center py-4 text-danger">Error: ${err.message}</p>`;
+    }
+  }
+</script>
+
+<!-- Transaction Detail Modal -->
+<div class="modal fade" id="txDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:440px;">
+    <div class="modal-content" style="border-radius:15px; border:none; box-shadow:var(--shadow-md);">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold" id="txDetailTitle">Transactions</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" style="font-size:.7rem;"></button>
+      </div>
+      <div class="modal-body p-3" id="txDetailBody">
+        <!-- Content injected here -->
+      </div>
+    </div>
+  </div>
+</div>
+<!-- FABs -->
+<button class="fab fab-chat" title="Ask SpendBot" onclick="toggleChatPanel()" style="border:none;" aria-label="SpendBot">
+  <i class="bi bi-robot"></i>
+</button>
+<button class="fab fab-calc" title="Calculator" onclick="toggleCalcPanel()" style="border:none;">
+  <i class="bi bi-calculator"></i>
+</button>
+<button class="fab" title="Add Expense (+)" data-bs-toggle="modal" data-bs-target="#addExpenseModal" style="border:none;">
+  <i class="bi bi-plus-lg"></i>
+</button>
+
+<!-- Calculator Floating Panel (non-modal, page stays scrollable) -->
+<div id="calcPanel">
+  <div id="calcDragHandle">
+    <span style="font-size:.82rem;font-weight:700;color:var(--text-primary);">
+      <i class="bi bi-calculator me-1" style="color:var(--accent);"></i> Calculator
+    </span>
+    <button onclick="toggleCalcPanel()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:.9rem;line-height:1;padding:0;">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  
+  <div class="calc-mode-tabs">
+    <button class="calc-mode-btn active" onclick="switchCalcMode('std')" id="btn-mode-std">Std</button>
+    <button class="calc-mode-btn" onclick="switchCalcMode('sci')" id="btn-mode-sci">Sci</button>
+    <button class="calc-mode-btn" onclick="switchCalcMode('emi')" id="btn-mode-emi">EMI</button>
+  </div>
+
+  <div id="calcPanelBody">
+    <!-- Standard/Scientific View -->
+    <div id="commonCalcView">
+      <div class="calc-history" id="calcHistory"></div>
+      <div class="calc-display">
+        <div class="calc-expr" id="calcExpr"></div>
+        <div class="calc-result" id="calcResult">0</div>
+      </div>
+      
+      <!-- Standard Grid -->
+      <div class="calc-grid" id="stdGrid">
+        <button class="calc-btn ac" onclick="calcAction('AC')">AC</button>
+        <button class="calc-btn op" onclick="calcAction('DEL')">⌫</button>
+        <button class="calc-btn op" onclick="calcAction('%')">%</button>
+        <button class="calc-btn op" onclick="calcAction('/')">÷</button>
+
+        <button class="calc-btn" onclick="calcAction('7')">7</button>
+        <button class="calc-btn" onclick="calcAction('8')">8</button>
+        <button class="calc-btn" onclick="calcAction('9')">9</button>
+        <button class="calc-btn op" onclick="calcAction('*')">×</button>
+
+        <button class="calc-btn" onclick="calcAction('4')">4</button>
+        <button class="calc-btn" onclick="calcAction('5')">5</button>
+        <button class="calc-btn" onclick="calcAction('6')">6</button>
+        <button class="calc-btn op" onclick="calcAction('-')">−</button>
+
+        <button class="calc-btn" onclick="calcAction('1')">1</button>
+        <button class="calc-btn" onclick="calcAction('2')">2</button>
+        <button class="calc-btn" onclick="calcAction('3')">3</button>
+        <button class="calc-btn op" onclick="calcAction('+')">+</button>
+
+        <button class="calc-btn" onclick="calcAction('0')">0</button>
+        <button class="calc-btn" onclick="calcAction('.')">.</button>
+        <button class="calc-btn op" onclick="copyCalcResult()" title="Copy result"><i class="bi bi-copy"></i></button>
+        <button class="calc-btn eq" onclick="calcAction('=')">=</button>
+      </div>
+
+      <!-- Scientific Grid (Extends Standard) -->
+      <div class="sci-calc-view mt-2" id="sciGrid">
+        <button class="calc-btn op" onclick="calcAction('Math.sin(')" style="font-size:.75rem">sin</button>
+        <button class="calc-btn op" onclick="calcAction('Math.cos(')" style="font-size:.75rem">cos</button>
+        <button class="calc-btn op" onclick="calcAction('Math.tan(')" style="font-size:.75rem">tan</button>
+        <button class="calc-btn op" onclick="calcAction('Math.PI')" style="font-size:.75rem">π</button>
+        <button class="calc-btn op" onclick="calcAction('Math.log10(')" style="font-size:.75rem">log</button>
+        <button class="calc-btn op" onclick="calcAction('Math.log(')" style="font-size:.75rem">ln</button>
+        <button class="calc-btn op" onclick="calcAction('**')" style="font-size:.75rem">xⁿ</button>
+        <button class="calc-btn op" onclick="calcAction('sqrt(')" style="font-size:.75rem">√</button>
+        <button class="calc-btn op" onclick="calcAction('(')">(</button>
+        <button class="calc-btn op" onclick="calcAction(')')">)</button>
+        <button class="calc-btn op" onclick="calcAction('Math.E')" style="font-size:.75rem">e</button>
+        <button class="calc-btn op" onclick="calcAction('Math.exp(')" style="font-size:.75rem">exp</button>
+      </div>
+    </div>
+
+    <!-- EMI View -->
+    <div class="emi-calc-view" id="emiView">
+      <div class="emi-input-group">
+        <label>Principal Amount</label>
+        <input type="number" id="emiPrincipal" placeholder="e.g. 500000" oninput="calculateEMI()">
+      </div>
+      <div class="row g-2">
+        <div class="col-6">
+          <div class="emi-input-group">
+            <label>Interest (% p.a.)</label>
+            <input type="number" id="emiRate" placeholder="e.g. 10.5" step="0.1" oninput="calculateEMI()">
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="emi-input-group">
+            <label>Tenure (Months)</label>
+            <input type="number" id="emiTenure" placeholder="e.g. 12" oninput="calculateEMI()">
+          </div>
+        </div>
+      </div>
+      
+      <div class="emi-result-box">
+        <div class="emi-res-row">
+          <span class="emi-res-label">Monthly EMI</span>
+          <span class="emi-res-val" id="emiMonthly">₹0</span>
+        </div>
+        <div class="emi-res-row">
+          <span class="emi-res-label">Total Interest</span>
+          <span class="emi-total-val" id="emiInterest">₹0</span>
+        </div>
+        <div class="emi-res-row">
+          <span class="emi-res-label">Total Payment</span>
+          <span class="emi-total-val" id="emiTotal">₹0</span>
+        </div>
+      </div>
+      <button class="btn btn-brand btn-sm w-100 mt-3" onclick="copyEMIResult()">Copy EMI Amount</button>
+    </div>
+  </div>
+</div>
+
+<!-- SpendBot Chat Panel -->
+<div id="chatPanel">
+  <div id="chatDragHandle">
+    <span style="font-size:.82rem;font-weight:700;color:var(--text-primary);">
+      <i class="bi bi-robot me-1" style="color:#7E3AF2;"></i> SpendBot
+      <small style="font-size:.68rem;font-weight:400;color:var(--text-muted);margin-left:4px;">Ask about your spending</small>
+    </span>
+    <button onclick="toggleChatPanel()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:.9rem;line-height:1;padding:0;" aria-label="Close">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <div id="chatMessages">
+    <div class="chat-msg bot">
+      <div class="chat-avatar">
+        <i class="bi bi-robot" style="font-size:.8rem;"></i>
+      </div>
+      <div class="chat-bubble">
+        Hey! I'm <strong>SpendBot</strong>. Ask me things like<br>
+        <em>"How much on milk in March?"</em> or<br>
+        <em>"Total expense last month"</em>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat-suggestions" id="chatSuggestions">
+    <button class="chat-chip" onclick="sendChat('Total expense this month')">This month total</button>
+    <button class="chat-chip" onclick="sendChat('Total expense last month')">Last month</button>
+    <button class="chat-chip" onclick="sendChat('How much on groceries this month?')">Groceries</button>
+    <button class="chat-chip" onclick="sendChat('How much on fast food this month?')">Fast food</button>
+  </div>
+
+  <div id="chatInputRow">
+    <input type="text" id="chatInput" placeholder="Ask about your spending…"
+           autocomplete="off"
+           onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendChat(); }">
+    <button id="chatSendBtn" onclick="sendChat()" title="Send (Enter)">
+      <i class="bi bi-send-fill"></i>
+    </button>
+  </div>
+</div>
+
+{% block extra_js %}{% endblock %}
+
+<script>
+  // ── Mobile Sidebar Toggle ────────────────────────────────────────────
+  function toggleSidebar() {
+    const sidebar  = document.getElementById('sidebar');
+    const overlay  = document.getElementById('sidebarOverlay');
+    const isOpen   = sidebar.classList.contains('open');
+    if (isOpen) {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+    } else {
+      sidebar.classList.add('open');
+      overlay.classList.add('show');
+    }
+  }
+  function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('show');
+  }
+  // Close sidebar when a nav link is tapped on mobile
+  document.querySelectorAll('#sidebar .sidebar-nav a').forEach(a => {
+    a.addEventListener('click', () => {
+      if (window.innerWidth <= 768) closeSidebar();
+    });
+  });
+</script>
+
+<script>
+  // ── Calculator Logic ────────────────────────────────────────────────
+  let currentExpr = "";
+  let lastResult  = null;
+  let calcHistory = JSON.parse(localStorage.getItem('ss_calc_history') || '[]');
+
+  const calcResEl  = document.getElementById('calcResult');
+  const calcExpEl  = document.getElementById('calcExpr');
+  const calcHistEl = document.getElementById('calcHistory');
+  const calcPanel  = document.getElementById('calcPanel');
+
+  function toggleCalcPanel() {
+    const isOpen = calcPanel.classList.contains('open');
+    if (isOpen) {
+      calcPanel.classList.remove('open');
+    } else {
+      calcPanel.classList.add('open');
+      renderHistory();
+    }
+  }
+
+  function switchCalcMode(mode) {
+    // Buttons
+    document.querySelectorAll('.calc-mode-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-mode-' + mode).classList.add('active');
+
+    // Views
+    const common = document.getElementById('commonCalcView');
+    const emi    = document.getElementById('emiView');
+    const sci    = document.getElementById('sciGrid');
+
+    if (mode === 'std') {
+      common.style.display = 'block'; emi.style.display = 'none'; sci.style.display = 'none';
+    } else if (mode === 'sci') {
+      common.style.display = 'block'; emi.style.display = 'none'; sci.style.display = 'grid';
+    } else if (mode === 'emi') {
+      common.style.display = 'none'; emi.style.display = 'block';
+    }
+  }
+
+  function renderHistory() {
+    if (calcHistory.length === 0) {
+      calcHistEl.innerHTML = '<div class="text-muted text-center py-1" style="font-size:.6rem;">No history yet</div>';
+      return;
+    }
+    calcHistEl.innerHTML = calcHistory.map(h => `
+      <div class="calc-history-item" onclick="useHistory(${JSON.stringify(String(h.result))})">
+        <span class="h-expr">${h.expr} =</span>
+        <span class="h-res">${h.result}</span>
+      </div>
+    `).join('');
+    calcHistEl.scrollTop = 0;
+  }
+
+  function useHistory(val) { currentExpr = val; updateDisplay(); }
+
+  function calcAction(val) {
+    if (val === 'AC') { currentExpr = ""; lastResult = null; }
+    else if (val === 'DEL') { currentExpr = currentExpr.slice(0, -1); }
+    else if (val === '=') {
+      if (!currentExpr) return;
+      try {
+        const displayExpr = currentExpr;
+        let mathExpr = currentExpr
+          .replace(/÷/g, '/').replace(/×/g, '*').replace(/−/g, '-')
+          .replace(/sqrt\(/g, 'Math.sqrt(');
+        
+        let res = eval(mathExpr);
+        res = Math.round(res * 1e8) / 1e8;
+
+        calcHistory.unshift({ expr: displayExpr, result: res });
+        if (calcHistory.length > 20) calcHistory.pop();
+        localStorage.setItem('ss_calc_history', JSON.stringify(calcHistory));
+        renderHistory();
+
+        currentExpr = String(res);
+        lastResult = res;
+      } catch (e) {
+        currentExpr = "Error";
+        setTimeout(() => { currentExpr = ""; updateDisplay(); }, 800);
+      }
+    } else {
+      currentExpr += val;
+    }
+    updateDisplay();
+  }
+
+  function updateDisplay() {
+    calcResEl.textContent = currentExpr || "0";
+  }
+
+  function copyCalcResult() {
+    const res = calcResEl.textContent;
+    if (res && res !== "0") {
+      navigator.clipboard.writeText(res);
+      const old = calcResEl.style.color;
+      calcResEl.style.color = 'var(--accent)';
+      setTimeout(() => calcResEl.style.color = old, 500);
+    }
+  }
+
+  // ── EMI Calculator Logic ──
+  function calculateEMI() {
+    const P = parseFloat(document.getElementById('emiPrincipal').value) || 0;
+    const R = parseFloat(document.getElementById('emiRate').value) || 0;
+    const N = parseFloat(document.getElementById('emiTenure').value) || 0;
+
+    if (P > 0 && R > 0 && N > 0) {
+      const monthlyRate = R / 12 / 100;
+      const emi = P * monthlyRate * Math.pow(1 + monthlyRate, N) / (Math.pow(1 + monthlyRate, N) - 1);
+      
+      const totalPayment = emi * N;
+      const totalInterest = totalPayment - P;
+
+      document.getElementById('emiMonthly').textContent = fmtINR(emi);
+      document.getElementById('emiInterest').textContent = fmtINR(totalInterest);
+      document.getElementById('emiTotal').textContent = fmtINR(totalPayment);
+    } else {
+      document.getElementById('emiMonthly').textContent = '₹0';
+      document.getElementById('emiInterest').textContent = '₹0';
+      document.getElementById('emiTotal').textContent = '₹0';
+    }
+  }
+
+  function copyEMIResult() {
+    const emi = document.getElementById('emiMonthly').textContent.replace(/[^\d.]/g, '');
+    if (emi && emi !== "0") {
+      navigator.clipboard.writeText(emi);
+    }
+  }
+
+  // ── Drag to reposition ──
+  (function initDrag() {
+    const handle = document.getElementById('calcDragHandle');
+    let dragging = false, ox = 0, oy = 0;
+
+    handle.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+      dragging = true;
+      const rect = calcPanel.getBoundingClientRect();
+      ox = e.clientX - rect.left; oy = e.clientY - rect.top;
+      calcPanel.style.transition = 'none';
+    });
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const x = Math.max(0, Math.min(e.clientX - ox, window.innerWidth - calcPanel.offsetWidth));
+      const y = Math.max(0, Math.min(e.clientY - oy, window.innerHeight - calcPanel.offsetHeight));
+      calcPanel.style.right = 'auto'; calcPanel.style.bottom = 'auto';
+      calcPanel.style.left = x + 'px'; calcPanel.style.top = y + 'px';
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+  })();
+
+  function switchModalTab(tab) {
+    document.getElementById('modalManualPane').style.display = tab === 'manual' ? 'block' : 'none';
+    document.getElementById('modalScanPane').style.display   = tab === 'scan' ? 'block' : 'none';
+    document.getElementById('modalTabManual').classList.toggle('active', tab === 'manual');
+    document.getElementById('modalTabScan').classList.toggle('active', tab === 'scan');
+  }
+
+  // ── OCR Modal Logic ───────────────────────────────────────────────────
+  async function handleModalFileSelect(input) {
+    if (!(input.files && input.files[0])) return;
+
+    const file = input.files[0];
+    modalOcrFile = file;
+
+    if (modalOcrObjectUrl) {
+      URL.revokeObjectURL(modalOcrObjectUrl);
+      modalOcrObjectUrl = null;
+    }
+
+    const img = document.getElementById('modalReceiptPreview');
+    const canvas = document.getElementById('pdfCanvas');
+    const preview = document.getElementById('modalPreviewContainer');
+
+    document.getElementById('modalFileName').textContent = file.name;
+    document.getElementById('modalUploadStep').style.display = 'block';
+    document.getElementById('modalReviewGridContainer').style.display = 'none';
+    document.getElementById('modalOcrProgress').style.display = 'none';
+    preview.style.display = 'block';
+
+    if (file.type === 'application/pdf') {
+      img.style.display = 'none';
+      canvas.style.display = 'block';
+      await renderModalPdfPreview(file);
+      return;
+    }
+
+    canvas.style.display = 'none';
+    img.style.display = 'block';
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function setModalOcrStatus(status, pct = null) {
+    const statusEl = document.getElementById('modalOcrStatus');
+    const pctEl = document.getElementById('modalOcrPct');
+    const barEl = document.getElementById('modalOcrBar');
+
+    statusEl.textContent = status;
+    if (pct !== null) {
+      const safePct = Math.max(0, Math.min(100, Math.round(pct)));
+      pctEl.textContent = safePct + '%';
+      barEl.style.width = safePct + '%';
+    }
+  }
+
+  async function renderModalPdfPreview(file) {
+    if (typeof pdfjsLib === 'undefined') {
+      throw new Error('PDF preview library not available');
+    }
+
+    modalOcrObjectUrl = URL.createObjectURL(file);
+    const loadingTask = pdfjsLib.getDocument(modalOcrObjectUrl);
+    modalPdfDoc = await loadingTask.promise;
+    const page = await modalPdfDoc.getPage(1);
+    const unscaled = page.getViewport({ scale: 1 });
+    const maxPreviewWidth = Math.min(560, window.innerWidth * 0.72);
+    const previewScale = Math.max(1, maxPreviewWidth / unscaled.width);
+    const viewport = page.getViewport({ scale: previewScale });
+    const canvas = document.getElementById('pdfCanvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  }
+
+  function resetModalUpload() {
+    document.getElementById('modalReceiptInput').value = '';
+    document.getElementById('modalPreviewContainer').style.display = 'none';
+    document.getElementById('modalOcrProgress').style.display = 'none';
+    document.getElementById('modalReviewGridContainer').style.display = 'none';
+    document.getElementById('modalReceiptPreview').src = '';
+    document.getElementById('modalReceiptPreview').style.display = 'none';
+    document.getElementById('pdfCanvas').style.display = 'none';
+    document.getElementById('modalReviewBody').innerHTML = '';
+    document.getElementById('modalFileName').textContent = 'No file selected';
+    setModalOcrStatus('Initializing...', 0);
+    modalOcrFile = null;
+    modalPdfDoc = null;
+    if (modalOcrObjectUrl) {
+      URL.revokeObjectURL(modalOcrObjectUrl);
+      modalOcrObjectUrl = null;
+    }
+  }
+
+  function buildOcrCanvas(sourceEl) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const srcWidth = sourceEl.naturalWidth || sourceEl.width;
+    const srcHeight = sourceEl.naturalHeight || sourceEl.height;
+    const maxDim = 1800;
+    const scale = Math.min(1, maxDim / Math.max(srcWidth, srcHeight));
+
+    canvas.width = Math.max(1, Math.floor(srcWidth * scale));
+    canvas.height = Math.max(1, Math.floor(srcHeight * scale));
+    ctx.drawImage(sourceEl, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  async function processModalReceipt() {
+    await initAddModalData();
+
+    const img = document.getElementById('modalReceiptPreview');
+    const canvas = document.getElementById('pdfCanvas');
+    const scanSource = canvas.style.display !== 'none' ? canvas : img;
+    const hasSource = scanSource === canvas
+      ? canvas.width > 0 && canvas.height > 0
+      : Boolean(img.src);
+    if (!hasSource) return;
+
+    document.getElementById('modalOcrProgress').style.display = 'block';
+    document.getElementById('modalProcessBtn').disabled = true;
+    setModalOcrStatus('Preparing scan...', 2);
+
+    try {
+      const ocrCanvas = buildOcrCanvas(scanSource);
+      const result = await Tesseract.recognize(ocrCanvas, 'eng', {
+        logger: m => {
+          if (!m.status) return;
+          const status = m.status.charAt(0).toUpperCase() + m.status.slice(1);
+          const pct = typeof m.progress === 'number' ? m.progress * 100 : null;
+          setModalOcrStatus(status, pct);
+        }
+      });
+
+      parseModalReceiptText(result.data.text || '');
+    } catch (err) {
+      console.error(err);
+      alert('Error scanning receipt. Please try a clearer image or PDF.');
+    } finally {
+      document.getElementById('modalOcrProgress').style.display = 'none';
+      document.getElementById('modalProcessBtn').disabled = false;
+    }
+  }
+
+  function parseModalReceiptText(text) {
+    const lines = text.split('\n');
+    const items = [];
+    const skipWords = /subtotal|total|tax|gst|cgst|sgst|discount|change|balance|cash|visa|mastercard|upi|thank you|invoice|receipt/i;
+    const priceRegex = /(?:rs\.?|inr|\$)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i;
+
+    lines.forEach(line => {
+      line = line.replace(/\s+/g, ' ').trim();
+      if (!line || line.length < 3 || skipWords.test(line)) return;
+      const match = line.match(priceRegex);
+      if (match) {
+        const amt = parseFloat(match[1].replace(/,/g, ''));
+        const name = line
+          .replace(match[0], '')
+          .replace(/^[\d.\-xX* ]+/, '')
+          .replace(/[^\w\s&/()-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (amt > 0 && amt < 100000 && name.length > 1) {
+          items.push({ name, amt });
+        }
+      }
+    });
+
+    const dedupedItems = items.filter((item, idx, arr) =>
+      idx === arr.findIndex(other =>
+        other.name.toLowerCase() === item.name.toLowerCase() && other.amt === item.amt
+      )
+    );
+
+    const tbody = document.getElementById('modalReviewBody');
+    tbody.innerHTML = '';
+    if (dedupedItems.length === 0) addModalReviewRow();
+    else dedupedItems.forEach(item => addModalReviewRow(item.name, item.amt));
+
+    document.getElementById('modalUploadStep').style.display = 'none';
+    document.getElementById('modalReviewGridContainer').style.display = 'block';
+  }
+
+  function insertSelectOption(selectEl, value, label = value) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    const addNewOption = selectEl.querySelector('option[value="__custom__"]');
+    if (addNewOption) selectEl.insertBefore(option, addNewOption);
+    else selectEl.appendChild(option);
+    return option;
+  }
+
+  async function promptForReviewOption(selectEl, label) {
+    const entered = window.prompt(`Enter new ${label}`);
+    const value = (entered || '').trim();
+    if (!value) {
+      const fallback = selectEl.dataset.previousValue || '';
+      selectEl.value = fallback;
+      return fallback;
+    }
+
+    let existing = Array.from(selectEl.options).find(opt => opt.value.toLowerCase() === value.toLowerCase());
+    if (!existing) existing = insertSelectOption(selectEl, value);
+    selectEl.value = existing.value;
+    selectEl.dataset.previousValue = existing.value;
+    return existing.value;
+  }
+
+  async function loadReviewSubcategoryOptions(category, selectEl, selectedSubcategory = '') {
+    selectEl.innerHTML = '<option value="">Loading...</option>';
+    try {
+      const res = await fetch(`/api/subcategories/${encodeURIComponent(category)}`);
+      const subs = await res.json();
+      let options = '<option value="">Select subcategory</option>';
+      subs.forEach(sub => {
+        const isSelected = sub === selectedSubcategory ? 'selected' : '';
+        options += `<option value="${sub}" ${isSelected}>${sub}</option>`;
+      });
+      options += `<option value="__custom__">+ Add new...</option>`;
+      selectEl.innerHTML = options;
+      if (selectedSubcategory && !subs.includes(selectedSubcategory)) {
+        insertSelectOption(selectEl, selectedSubcategory);
+        selectEl.value = selectedSubcategory;
+      }
+      selectEl.dataset.previousValue = selectEl.value || '';
+    } catch (err) {
+      selectEl.innerHTML = '<option value="">Select subcategory</option><option value="__custom__">+ Add new...</option>';
+      selectEl.dataset.previousValue = selectEl.value || '';
+    }
+  }
+
+  async function addModalReviewRow(name = '', amount = '', category = 'Groceries', subcategory = '', quantity = '', unit = '') {
+    const tbody = document.getElementById('modalReviewBody');
+    const tr = document.createElement('tr');
+
+    const categories = Array.from(document.getElementById('modalCategorySelect').options)
+                            .map(o => o.value).filter(v => v);
+
+    let catOptions = '';
+    categories.forEach(c => {
+      catOptions += `<option value="${c}" ${c === category ? 'selected' : ''}>${c}</option>`;
+    });
+    if (!catOptions) catOptions = '<option value="Others">Others</option>';
+    catOptions += '<option value="__custom__">+ Add new...</option>';
+
+    const safeSubcategory = subcategory || name;
+    tr.innerHTML = `
+      <td><input type="text" class="form-control form-control-sm item-name" value="${name}" placeholder="Bill text / item"></td>
+      <td><input type="number" step="0.01" class="form-control form-control-sm item-amount" value="${amount}"></td>
+      <td><input type="number" step="0.001" min="0" class="form-control form-control-sm item-quantity" value="${quantity}" placeholder="2"></td>
+      <td><input type="text" class="form-control form-control-sm item-unit" value="${unit}" list="unitOptionsList" placeholder="kg"></td>
+      <td><select class="form-select form-select-sm item-category">${catOptions}</select></td>
+      <td><select class="form-select form-select-sm item-subcategory"></select></td>
+      <td class="text-center"><i class="bi bi-trash text-danger" style="cursor:pointer" onclick="this.closest('tr').remove()"></i></td>
+    `;
+    tbody.appendChild(tr);
+
+    const catSelect = tr.querySelector('.item-category');
+    const subSelect = tr.querySelector('.item-subcategory');
+
+    catSelect.dataset.previousValue = catSelect.value || '';
+    catSelect.addEventListener('change', async () => {
+      if (catSelect.value === '__custom__') {
+        const newCategory = await promptForReviewOption(catSelect, 'category');
+        if (!newCategory) return;
+      } else {
+        catSelect.dataset.previousValue = catSelect.value || '';
+      }
+      await loadReviewSubcategoryOptions(catSelect.value, subSelect, '');
+    });
+
+    subSelect.addEventListener('change', async () => {
+      if (subSelect.value !== '__custom__') {
+        subSelect.dataset.previousValue = subSelect.value || '';
+        return;
+      }
+      await promptForReviewOption(subSelect, 'subcategory');
+    });
+
+    await loadReviewSubcategoryOptions(catSelect.value || 'Others', subSelect, safeSubcategory);
+  }
+
+  async function saveModalBulkExpenses() {
+    const rows = document.querySelectorAll('#modalReviewBody tr');
+    const expenses = [];
+    const paymentMethod = document.getElementById('modalBulkPayment').value;
+    const date = document.getElementById('modalBulkDate').value;
+
+    rows.forEach(row => {
+      const name = row.querySelector('.item-name').value.trim();
+      const amt  = parseFloat(row.querySelector('.item-amount').value);
+      const qty  = parseFloat(row.querySelector('.item-quantity').value);
+      const unit = row.querySelector('.item-unit').value.trim();
+      const cat  = row.querySelector('.item-category').value;
+      const subSel = row.querySelector('.item-subcategory');
+      const subcategory = subSel.value;
+      if (subcategory && !isNaN(amt) && amt > 0) {
+        expenses.push({ subcategory, amount: amt, quantity: !isNaN(qty) && qty > 0 ? qty : null, unit, category: cat, payment_method: paymentMethod, date: date, notes: name ? `Scanned: ${name}` : 'Scanned' });
+      }
+    });
+
+    if (expenses.length === 0) return alert("No valid entries.");
+
+    try {
+      const res = await fetch('/add_bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expenses })
+      });
+      if (res.ok) window.location.reload();
+      else alert("Save failed.");
+    } catch (err) { alert("Network error."); }
+  }
+
+  // ── Keyboard support ──
+  document.addEventListener('keydown', e => {
+    if (e.key === '+' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+      const modal = document.getElementById('addExpenseModal');
+      if (modal) {
+        const m = new bootstrap.Modal(modal);
+        m.show();
+      }
+      return;
+    }
+    if (calcPanel.classList.contains('open')) {
+      // If we are typing in an input or textarea, don't intercept keys
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      const keyMap = {
+        '0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9',
+        '.':'.', '+':'+', '-':'-', '*':'*', '/':'/', '%':'%',
+        'Enter':'=', 'Backspace':'DEL', 'Escape':'AC', 'c':'AC'
+      };
+      if (keyMap[e.key]) { e.preventDefault(); calcAction(keyMap[e.key]); }
+    }
+  });
+</script>
+
+<script>
+// ── SpendBot Chat ─────────────────────────────────────────────────────────────
+(function () {
+  const panel    = document.getElementById('chatPanel');
+  const msgs     = document.getElementById('chatMessages');
+  const inputEl  = document.getElementById('chatInput');
+  const sendBtn  = document.getElementById('chatSendBtn');
+
+  /* ── Toggle open/close ── */
+  window.toggleChatPanel = function () {
+    const isOpen = panel.classList.toggle('open');
+    if (isOpen) {
+      inputEl.focus();
+      _scrollBottom();
+    }
+  };
+
+  /* ── Send a message (called from button, Enter key, or suggestion chip) ── */
+  window.sendChat = async function (prefilled) {
+    const text = (prefilled !== undefined ? prefilled : inputEl.value).trim();
+    if (!text) return;
+    inputEl.value = '';
+
+    _appendMsg('user', text);
+    const typingEl = _showTyping();
+    sendBtn.disabled = true;
+
+    try {
+      const res  = await fetch('/api/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      typingEl.remove();
+      _appendMsg('bot', data.reply || 'Sorry, no reply received.');
+    } catch (_) {
+      typingEl.remove();
+      _appendMsg('bot', 'Oops — could not reach SpendBot. Please try again.');
+    }
+
+    sendBtn.disabled = false;
+    inputEl.focus();
+  };
+
+  /* ── Helpers ── */
+  function _scrollBottom () { msgs.scrollTop = msgs.scrollHeight; }
+
+  function _appendMsg (role, text) {
+    const wrap   = document.createElement('div');
+    wrap.className = `chat-msg ${role}`;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'chat-avatar';
+    avatar.innerHTML = role === 'bot'
+      ? '<i class="bi bi-robot" style="font-size:.8rem;"></i>'
+      : '<i class="bi bi-person-fill" style="font-size:.8rem;"></i>';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.textContent = text;
+
+    if (role === 'user') {
+      wrap.appendChild(bubble);
+      wrap.appendChild(avatar);
+    } else {
+      wrap.appendChild(avatar);
+      wrap.appendChild(bubble);
+    }
+
+    msgs.appendChild(wrap);
+    _scrollBottom();
+    return wrap;
+  }
+
+  function _showTyping () {
+    const wrap   = document.createElement('div');
+    wrap.className = 'chat-msg bot';
+    const avatar = document.createElement('div');
+    avatar.className = 'chat-avatar';
+    avatar.innerHTML = '<i class="bi bi-robot" style="font-size:.8rem;"></i>';
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.innerHTML = '<div class="chat-typing"><span></span><span></span><span></span></div>';
+    wrap.appendChild(avatar);
+    wrap.appendChild(bubble);
+    msgs.appendChild(wrap);
+    _scrollBottom();
+    return wrap;
+  }
+
+  /* ── Drag to reposition ── */
+  const handle = document.getElementById('chatDragHandle');
+  if (handle) {
+    handle.addEventListener('mousedown', function (e) {
+      const startX = e.clientX - panel.offsetLeft;
+      const startY = e.clientY - panel.offsetTop;
+      function onMove (e2) {
+        panel.style.left   = (e2.clientX - startX) + 'px';
+        panel.style.top    = (e2.clientY - startY) + 'px';
+        panel.style.right  = 'auto';
+        panel.style.bottom = 'auto';
+      }
+      function onUp () {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
+  }
+})();
+</script>
+</body>
+</html>
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                

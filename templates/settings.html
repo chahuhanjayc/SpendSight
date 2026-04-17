@@ -1,0 +1,444 @@
+﻿{% extends "base.html" %}
+{% block title %}Settings — SpendSight{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-lg-7">
+
+  <form method="POST" action="{{ url_for('settings') }}">
+
+    <!-- ── Billing Month ── -->
+    <div class="card mb-4">
+      <div class="card-header-custom">
+        <i class="bi bi-calendar-range-fill" style="color:#1A56DB"></i>
+        Billing Month Start Day
+        <button type="submit" class="section-save-btn ms-auto">
+          <i class="bi bi-check-lg"></i> Save
+        </button>
+      </div>
+      <div class="card-body p-4">
+        <p class="mb-4" style="font-size:.87rem; color:var(--text-secondary);">
+          Set the day of the month when your billing cycle starts — typically your salary credit date
+          or credit card statement date.
+        </p>
+
+        <!-- Top row: day display + billing period preview -->
+        <div class="d-flex align-items-stretch gap-3 mb-4 flex-wrap">
+
+          <!-- Hidden input synced by the day-picker -->
+          <input type="number" name="billing_start_day" id="bsdInput"
+                 min="1" max="28" value="{{ billing_start_day }}"
+                 oninput="updatePreview(this.value)"
+                 style="position:absolute;opacity:0;pointer-events:none;width:0;">
+
+          <!-- Large day display -->
+          <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;
+                      min-width:96px;padding:1rem 1.25rem;border-radius:12px;
+                      background:var(--brand);box-shadow:0 4px 18px rgba(26,86,219,.25);">
+            <div id="bsdDisplay"
+                 style="font-size:2.6rem;font-weight:900;color:#fff;line-height:1;">{{ billing_start_day }}</div>
+            <div style="font-size:.72rem;font-weight:700;color:rgba(255,255,255,.75);text-transform:uppercase;
+                        letter-spacing:.6px;margin-top:3px;">of each month</div>
+          </div>
+
+          <!-- Billing period preview -->
+          <div class="billing-banner flex-grow-1 mb-0 d-flex flex-column justify-content-center"
+               style="min-width:180px;">
+            <div style="font-size:.72rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">
+              <i class="bi bi-arrow-right-circle me-1" style="color:var(--brand);"></i>Current Billing Period
+            </div>
+            <div id="previewLabel"
+                 style="font-size:1.2rem;font-weight:800;color:var(--brand);margin-top:5px;line-height:1.2;">
+              {{ billing_preview }}
+            </div>
+            <div style="font-size:.74rem;color:var(--text-muted);margin-top:4px;">
+              Dashboard stats show expenses within this window
+            </div>
+          </div>
+        </div>
+
+        <!-- 2-column compact day picker (1-14 left | 15-28 right) -->
+        <div>
+          <div style="font-size:.74rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+                      color:var(--text-muted);margin-bottom:.6rem;">Pick a day</div>
+          <div style="display:grid;grid-template-columns:auto auto;gap:6px;width:fit-content;">
+            {# Left block: 1-14 (two rows of 7) #}
+            <div style="display:grid;grid-template-columns:repeat(7,38px);gap:6px;">
+              {% for d in range(1, 15) %}
+              <button type="button" onclick="pickDay({{ d }})" id="dayBtn{{ d }}"
+                      style="width:38px;height:38px;border-radius:8px;font-size:.82rem;font-weight:600;
+                             border:1.5px solid {{ 'var(--brand)' if d == billing_start_day else 'var(--border)' }};
+                             background:{{ 'var(--brand)' if d == billing_start_day else 'var(--surface)' }};
+                             color:{{ '#fff' if d == billing_start_day else 'var(--text-secondary)' }};
+                             cursor:pointer;transition:all .12s;">{{ d }}</button>
+              {% endfor %}
+            </div>
+            {# Right block: 15-28 (two rows of 7) #}
+            <div style="display:grid;grid-template-columns:repeat(7,38px);gap:6px;">
+              {% for d in range(15, 29) %}
+              <button type="button" onclick="pickDay({{ d }})" id="dayBtn{{ d }}"
+                      style="width:38px;height:38px;border-radius:8px;font-size:.82rem;font-weight:600;
+                             border:1.5px solid {{ 'var(--brand)' if d == billing_start_day else 'var(--border)' }};
+                             background:{{ 'var(--brand)' if d == billing_start_day else 'var(--surface)' }};
+                             color:{{ '#fff' if d == billing_start_day else 'var(--text-secondary)' }};
+                             cursor:pointer;transition:all .12s;">{{ d }}</button>
+              {% endfor %}
+            </div>
+          </div>
+          <small class="text-muted d-block mt-2" style="font-size:.73rem;">
+            <i class="bi bi-info-circle"></i> Days 29–31 are unavailable to support all months consistently.
+          </small>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Currency ── -->
+    <div class="card mb-4">
+      <div class="card-header-custom">
+        <i class="bi bi-currency-exchange" style="color:#E3A008"></i>
+        Currency
+        <button type="submit" class="section-save-btn ms-auto">
+          <i class="bi bi-check-lg"></i> Save
+        </button>
+      </div>
+      <div class="card-body p-4">
+        <p class="mb-4" style="font-size:.87rem; color:var(--text-secondary);">
+          Choose the currency symbol displayed throughout the app. Only the symbol changes — no conversion is applied.
+        </p>
+
+        <label class="form-label" style="font-weight:600;font-size:.84rem;">Select Currency</label>
+        <!-- Dropdown + live preview side by side, equal width -->
+        <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;">
+          <select name="currency_code" class="form-select" onchange="updateCurrencyPreview(this.value)"
+                  style="flex:1 1 0;min-width:180px;max-width:320px;">
+            {% for c in currencies %}
+            <option value="{{ c.code }}" data-symbol="{{ c.symbol }}"
+                    {{ 'selected' if c.code == currency_code }}>
+              {{ c.symbol }} — {{ c.name }} ({{ c.code }})
+            </option>
+            {% endfor %}
+          </select>
+
+          <!-- Inline preview pill — same flex sizing as dropdown -->
+          <div style="display:inline-flex;align-items:center;gap:.75rem;padding:.5rem 1rem;
+                      background:var(--surface-2);border:1px solid var(--border);border-radius:10px;
+                      white-space:nowrap;flex:1 1 0;min-width:180px;max-width:320px;justify-content:center;">
+            <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+                         color:var(--text-muted);">Preview</span>
+            <span style="width:1px;height:16px;background:var(--border);display:inline-block;"></span>
+            <span id="currencyPreview"
+                  style="font-size:1.15rem;font-weight:800;color:var(--brand);">{{ currency_symbol }}1,234</span>
+            <span id="currencyPreviewLarge"
+                  style="font-size:.78rem;color:var(--text-muted);">· {{ currency_symbol }}10,00,000</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Payment Methods ── -->
+    <div class="card mb-4">
+      <div class="card-header-custom">
+        <i class="bi bi-credit-card-2-front-fill" style="color:#0E9F6E"></i>
+        Payment Methods
+      </div>
+      <div class="card-body p-4">
+        <p class="mb-4" style="font-size:.87rem; color:var(--text-secondary);">
+          Manage your payment methods (e.g. Cash, Card, UPI). Renaming an existing method will
+          automatically update all previous expenses and EMIs linked to it. Removing a method
+          won't delete history, but it won't be available for new entries.
+        </p>
+        
+        <div id="pmContainer">
+          {% for pm in payment_methods %}
+          <div class="pm-row mb-3 d-flex gap-2 align-items-center">
+            <div class="flex-grow-1">
+              <input type="hidden" name="pm_original" value="{{ pm }}">
+              <input type="text" name="pm_current" value="{{ pm }}" class="form-control"
+                     placeholder="e.g. HDFC Regalia, Cash..." required>
+            </div>
+            <button type="submit" class="btn btn-outline-success btn-sm px-3" title="Save all settings">
+              <i class="bi bi-check-lg"></i>
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm px-3" onclick="removePmRow(this)"
+                    title="Remove method" {{ 'disabled' if payment_methods|length <= 1 }}>
+              <i class="bi bi-trash3"></i>
+            </button>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="mt-4 pt-3 border-top">
+          <button type="button" class="btn btn-outline-success btn-sm px-4" onclick="addPmRow()">
+            <i class="bi bi-plus-lg me-1"></i> Add Another Payment Method
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Cloud Backup ── -->
+    <div class="card mb-4" id="cloud-backup">
+      <div class="card-header-custom">
+        <i class="bi bi-cloud-arrow-up-fill" style="color:#1A56DB"></i>
+        Cloud Backup
+        <span class="ms-2 badge" style="font-size:.68rem;font-weight:700;background:var(--surface-3);
+              color:var(--text-muted);border:1px solid var(--border);letter-spacing:.3px;">Coming Soon</span>
+      </div>
+      <div class="card-body p-4">
+        <p class="mb-4" style="font-size:.87rem; color:var(--text-secondary);">
+          Back up your <code>expenses.json</code> to the cloud. Your data stays local — the cloud is just a safety net. Click Connect, log in, and you're done.
+        </p>
+
+        {% set services = [
+            ("gdrive",   "Google Drive", "bi-google",    "#EA4335"),
+            ("onedrive", "OneDrive",     "bi-microsoft", "#0078D4"),
+            ("dropbox",  "Dropbox",      "bi-dropbox",   "#0061FF"),
+        ] %}
+
+        {% for svc_id, svc_name, svc_icon, svc_color in services %}
+        {% set connected = cloud_connected.get(svc_id, False) %}
+        <div class="mb-3 p-3 d-flex align-items-center justify-content-between"
+             style="border:1.5px solid {{ 'var(--accent)' if connected else 'var(--border)' }};border-radius:10px;background:var(--surface-2);">
+
+          <div class="d-flex align-items-center gap-2">
+            <i class="{{ svc_icon }}" style="color:{{ svc_color }};font-size:1.3rem;"></i>
+            <span class="fw-bold" style="color: var(--text-primary);">{{ svc_name }}</span>
+            {% if connected %}
+            <span class="badge bg-success">Connected</span>
+            {% else %}
+            <span class="badge bg-secondary">Not connected</span>
+            {% endif %}
+          </div>
+
+          <div class="d-flex gap-2">
+            {% if connected %}
+            <form method="POST" action="{{ url_for('cloud_backup', service=svc_id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-success px-3">
+                <i class="bi bi-cloud-upload me-1"></i> Backup Now
+              </button>
+            </form>
+            <form method="POST" action="{{ url_for('cloud_restore', service=svc_id) }}" class="d-inline"
+                  onsubmit="return confirm('Restore will overwrite your current data. Continue?')">
+              <button type="submit" class="btn btn-sm btn-outline-warning px-3">
+                <i class="bi bi-cloud-download me-1"></i> Restore
+              </button>
+            </form>
+            <form method="POST" action="{{ url_for('cloud_disconnect', service=svc_id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-danger px-2" title="Disconnect">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </form>
+            {% else %}
+            <a href="{{ url_for('cloud_connect', service=svc_id) }}" class="btn btn-sm btn-primary px-4">
+              <i class="bi bi-box-arrow-in-right me-1"></i> Connect
+            </a>
+            {% endif %}
+          </div>
+
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </form>
+
+  <!-- ── Budget Limits (separate AJAX save, outside main form) ── -->
+  <div class="card mt-4 mb-4" id="budget-limits">
+    <div class="card-header-custom">
+      <i class="bi bi-shield-check-fill" style="color:#0E9F6E"></i>
+      Budget Limits per Category
+      <span class="ms-2" style="font-size:.76rem;color:var(--text-muted);font-weight:400;">Current billing period caps</span>
+      <button type="button" class="section-save-btn ms-auto" onclick="saveBudgetLimits()">
+        <i class="bi bi-check-lg"></i> Save
+      </button>
+      <span id="budgetSaveMsg" style="font-size:.78rem;color:var(--accent);display:none;white-space:nowrap;">
+        <i class="bi bi-check-circle-fill"></i> Saved!
+      </span>
+    </div>
+    <div class="card-body p-4">
+      <p class="mb-4" style="font-size:.87rem; color:var(--text-secondary);">
+        Set a monthly spending cap for any category. The dashboard will show a progress bar and
+        alert you when you're close to (≥ 80%) or over (≥ 100%) your limit.
+      </p>
+
+      <div id="budgetLimitsTable">
+        {% if all_categories %}
+        <div class="table-responsive">
+          <table class="table align-middle mb-0" style="font-size:.88rem;">
+            <thead>
+              <tr style="border-bottom:1.5px solid var(--border);">
+                <th style="color:var(--text-muted);font-weight:600;padding:.5rem .75rem;">Category</th>
+                <th style="color:var(--text-muted);font-weight:600;padding:.5rem .75rem;">Limit ({{ currency_symbol }})</th>
+                <th style="color:var(--text-muted);font-weight:600;padding:.5rem .75rem;width:80px;">Clear</th>
+              </tr>
+            </thead>
+            <tbody id="budgetLimitsBody">
+              {% for cat in all_categories %}
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:.55rem .75rem;">
+                  <span class="cat-badge" style="background:{{ get_category_color(cat) }};">{{ cat }}</span>
+                </td>
+                <td style="padding:.55rem .75rem;">
+                  <div class="input-group input-group-sm" style="max-width:180px;">
+                    <span class="input-group-text" style="background:var(--surface-2);border-color:var(--border);color:var(--text-muted);">{{ currency_symbol }}</span>
+                    <input type="number" min="0" step="100"
+                           class="form-control budget-limit-input"
+                           data-cat="{{ cat }}"
+                           value="{{ budget_limits.get(cat, '') }}"
+                           placeholder="No limit">
+                  </div>
+                </td>
+                <td style="padding:.55rem .75rem;">
+                  <button type="button" class="btn btn-outline-danger btn-sm px-2"
+                          onclick="clearBudgetLimit('{{ cat }}')" title="Remove limit">
+                    <i class="bi bi-x-lg"></i>
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4" style="color:var(--text-muted);">
+          <i class="bi bi-tags" style="font-size:2rem;"></i>
+          <p class="mt-2 mb-0">No categories found. Add some expenses first.</p>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function pickDay(d) {
+  document.getElementById('bsdInput').value = d;
+  // Update large day display
+  const disp = document.getElementById('bsdDisplay');
+  if (disp) disp.textContent = d;
+  // Update button styles
+  for (let i = 1; i <= 28; i++) {
+    const btn = document.getElementById('dayBtn' + i);
+    if (!btn) continue;
+    if (i === d) {
+      btn.style.background  = 'var(--brand)';
+      btn.style.borderColor = 'var(--brand)';
+      btn.style.color       = '#fff';
+    } else {
+      btn.style.background  = 'var(--surface)';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color       = 'var(--text-secondary)';
+    }
+  }
+  updatePreview(d);
+}
+
+function updatePreview(val) {
+  const d = Math.min(28, Math.max(1, parseInt(val) || 1));
+  // Sync large display and hidden input
+  const disp = document.getElementById('bsdDisplay');
+  if (disp) disp.textContent = d;
+  document.getElementById('bsdInput').value = d;
+  // Sync button highlight
+  for (let i = 1; i <= 28; i++) {
+    const btn = document.getElementById('dayBtn' + i);
+    if (!btn) continue;
+    if (i === d) {
+      btn.style.background  = 'var(--brand)';
+      btn.style.borderColor = 'var(--brand)';
+      btn.style.color       = '#fff';
+    } else {
+      btn.style.background  = 'var(--surface)';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color       = 'var(--text-secondary)';
+    }
+  }
+  // Fetch live billing period preview from server
+  fetch(`/api/billing-preview?day=${d}`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('previewLabel').textContent = data.preview;
+    }).catch(() => {});
+}
+
+// Payment Methods Logic
+function addPmRow() {
+  const container = document.getElementById('pmContainer');
+  const div = document.createElement('div');
+  div.className = 'pm-row mb-3 d-flex gap-2';
+  div.innerHTML = `
+    <div class="flex-grow-1">
+      <input type="hidden" name="pm_original" value="">
+      <input type="text" name="pm_current" value="" class="form-control"
+             placeholder="New card or method..." required>
+    </div>
+    <button type="submit" class="btn btn-outline-success btn-sm px-3" title="Save all settings">
+      <i class="bi bi-check-lg"></i>
+    </button>
+    <button type="button" class="btn btn-outline-danger btn-sm px-3" onclick="removePmRow(this)" title="Remove method">
+      <i class="bi bi-trash3"></i>
+    </button>
+  `;
+  container.appendChild(div);
+  updateRemoveButtons();
+}
+
+function removePmRow(btn) {
+  const row = btn.closest('.pm-row');
+  row.remove();
+  updateRemoveButtons();
+}
+
+function updateRemoveButtons() {
+  const rows = document.querySelectorAll('.pm-row');
+  const deleteBtns = document.querySelectorAll('.pm-row .btn-outline-danger');
+  deleteBtns.forEach(btn => {
+    btn.disabled = (rows.length <= 1);
+  });
+}
+
+function updateCurrencyPreview(code) {
+  const sel = document.querySelector(`select[name="currency_code"] option[value="${code}"]`);
+  const symbol = sel ? sel.dataset.symbol : code;
+  const preview = document.getElementById('currencyPreview');
+  if (preview) preview.textContent = symbol + '1,234';
+  const large = document.getElementById('currencyPreviewLarge');
+  if (large) large.textContent = '· ' + symbol + '10,00,000';
+}
+
+// ── Budget Limits ──────────────────────────────────────────────
+function saveBudgetLimits() {
+  const inputs = document.querySelectorAll('.budget-limit-input');
+  const limits = {};
+  inputs.forEach(inp => {
+    const cat = inp.dataset.cat;
+    const val = parseFloat(inp.value);
+    if (cat && !isNaN(val) && val > 0) limits[cat] = val;
+  });
+  fetch('/api/budget-limits', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(limits)
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      const msg = document.getElementById('budgetSaveMsg');
+      msg.style.display = 'inline';
+      setTimeout(() => { msg.style.display = 'none'; }, 3000);
+    }
+  }).catch(() => alert('Failed to save budget limits. Please try again.'));
+}
+
+function clearBudgetLimit(cat) {
+  const inp = document.querySelector(`.budget-limit-input[data-cat="${CSS.escape(cat)}"]`);
+  if (inp) inp.value = '';
+}
+</script>
+{% endblock %}
+

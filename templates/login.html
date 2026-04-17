@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SpendSight — Smart Expense Tracker</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"/>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    /* Theme Variables */
+    :root {
+      --bg-primary: #ffffff;
+      --bg-secondary: #fafafa;
+      --border-color: #eaeaea;
+      --text-primary: #09090b;
+      --text-secondary: #5b5b5b;
+      --text-muted: #a0a0a0;
+      --card-bg: #ffffff;
+      --icon-bg: #09090b;
+      --icon-color: #ffffff;
+      --hover-bg: #1a1a1c;
+      --dot-bg: #d4d4d4;
+      --dot-active: #09090b;
+      --alert-bg: #fef2f2;
+      --alert-border: #fee2e2;
+      --alert-text: #991b1b;
+      --input-border: #eaeaea;
+      --input-focus: #09090b;
+    }
+
+    [data-theme="dark"] {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #111111;
+      --border-color: #27272a;
+      --text-primary: #fafafa;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --card-bg: #18181b;
+      --icon-bg: #fafafa;
+      --icon-color: #09090b;
+      --hover-bg: #27272a;
+      --dot-bg: #3f3f46;
+      --dot-active: #fafafa;
+      --alert-bg: #2a1215;
+      --alert-border: #3b1e22;
+      --alert-text: #f87171;
+      --input-border: #27272a;
+      --input-focus: #fafafa;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+      background: var(--bg-primary);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s ease;
+    }
+
+    .auth-container {
+      display: flex;
+      width: 100%;
+      max-width: 1400px;
+      height: 100vh;
+      background: var(--bg-primary);
+    }
+
+    /* Left side - feature slideshow */
+    .slideshow-panel {
+      flex: 1;
+      background: var(--bg-secondary);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 2.5rem;
+      border-right: 1px solid var(--border-color);
+      overflow-y: auto;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .brand-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 3rem;
+    }
+
+    .logo-icon {
+      width: 34px;
+      height: 34px;
+      background: var(--icon-bg);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--icon-color);
+      font-size: 1.2rem;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .logo-text {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
+      transition: color 0.2s ease;
+    }
+
+    .slideshow-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 400px;
+    }
+
+    .slide {
+      display: none;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .slide.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .slide-icon {
+      font-size: 2.5rem;
+      color: var(--text-primary);
+      margin-bottom: 1.5rem;
+      transition: color 0.2s ease;
+    }
+
+    .slide-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: var(--text-primary);
+      margin-bottom: 0.75rem;
+      transition: color 0.2s ease;
+    }
+
+    .slide-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: color 0.2s ease;
+    }
+
+    .feature-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .feature-list li {
+      padding: 0.6rem 0;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--border-color);
+      transition: color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .feature-list li i {
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      width: 20px;
+      transition: color 0.2s ease;
+    }
+
+    .feature-badge {
+      background: var(--border-color);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-left: 0.5rem;
+      transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .slideshow-nav {
+      display: flex;
+      gap: 8px;
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-color);
+      transition: border-color 0.2s ease;
+    }
+
+    .nav-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--dot-bg);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .nav-dot.active {
+      background: var(--dot-active);
+      width: 24px;
+      border-radius: 4px;
+    }
+
+    .nav-dot:hover {
+      background: var(--text-muted);
+    }
+
+    .slide-counter {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.75rem;
+      transition: color 0.2s ease;
+    }
+
+    /* Right side - login form */
+    .login-panel {
+      flex: 0.8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-primary);
+      padding: 2rem;
+      position: relative;
+      transition: background 0.2s ease;
+    }
+
+    /* Theme Toggle Button */
+    .theme-toggle {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      z-index: 10;
+    }
+
+    .theme-toggle:hover {
+      transform: scale(1.02);
+      background: var(--border-color);
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .login-card h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+      transition: color 0.2s ease;
+    }
+
+    .login-subtitle {
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      margin-bottom: 2rem;
+      transition: color 0.2s ease;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+      display: block;
+      transition: color 0.2s ease;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.9rem;
+      border: 1px solid var(--input-border);
+      border-radius: 8px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: var(--input-focus);
+      box-shadow: 0 0 0 2px rgba(9, 9, 11, 0.05);
+    }
+
+    .form-control::placeholder {
+      color: var(--text-muted);
+    }
+
+    .btn-login {
+      width: 100%;
+      padding: 0.65rem;
+      background: var(--icon-bg);
+      color: var(--icon-color);
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-top: 0.5rem;
+      cursor: pointer;
+      transition: background 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-login:hover {
+      background: var(--hover-bg);
+    }
+
+    .alert {
+      padding: 0.75rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      margin-bottom: 1.25rem;
+      background: var(--alert-bg);
+      border: 1px solid var(--alert-border);
+      color: var(--alert-text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .privacy-note {
+      margin-top: 1.5rem;
+      text-align: center;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      transition: color 0.2s ease;
+    }
+
+    /* Scrollbar */
+    .slideshow-panel::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .slideshow-panel::-webkit-scrollbar-track {
+      background: var(--border-color);
+    }
+
+    .slideshow-panel::-webkit-scrollbar-thumb {
+      background: var(--dot-bg);
+      border-radius: 4px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .auth-container {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+      }
+      .slideshow-panel {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 1.5rem;
+      }
+      .login-panel {
+        padding: 2rem;
+      }
+      .brand-header {
+        margin-bottom: 1.5rem;
+      }
+      .theme-toggle {
+        top: 16px;
+        right: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <!-- Left: Feature Slideshow -->
+    <div class="slideshow-panel">
+      <div class="brand-header">
+        <div class="logo-icon">
+          <i class="bi bi-graph-up"></i>
+        </div>
+        <span class="logo-text">SpendSight</span>
+      </div>
+
+      <div class="slideshow-container">
+        <!-- Slide 1: Core Expense Management -->
+        <div class="slide active" data-slide="0">
+          <div class="slide-icon">
+            <i class="bi bi-receipt"></i>
+          </div>
+          <div class="slide-title">Core Expense Management</div>
+          <div class="slide-subtitle">Track every rupee with surgical precision</div>
+          <ul class="feature-list">
+            <li><i class="bi bi-pencil-square"></i> Add, edit, delete expenses with amount, category, subcategory, date & notes</li>
+            <li><i class="bi bi-lightning-charge"></i> Quick-add templates for frequent purchases <span class="feature-badge">1-click</span></li>
+            <li><i class="bi bi-credit-card"></i> Multi-payment methods: Cash, Rupee Card, Other Cards</li>
+            <li><i class="bi bi-palette"></i> Smart categorization with color-coded badges</li>
+          </ul>
+        </div>
+
+        <!-- Slide 2: Budgeting & Income -->
+        <div class="slide" data-slide="1">
+          <div class="slide-icon">
+            <i class="bi bi-piggy-bank"></i>
+          </div>
+          <div class="slide-title">Advanced Budgeting & Income</div>
+          <div class="slide-subtitle">Take control of your financial future</div>
+          <ul class="feature-list">
+            <li><i class="bi bi-cash-stack"></i> Monthly salary + extra income tracking with salary history</li>
+            <li><i class="bi bi-bank"></i> EMI & Loan tracker with start/end dates and remaining installments</li>
+            <li><i class="bi bi-calendar-week"></i> Custom billing cycle — align with your salary or credit card</li>
+            <li><i class="bi bi-bar-chart-steps"></i> Category budget limits with real-time progress bars</li>
+          </ul>
+        </div>
+
+        <!-- Slide 3: Intelligent Dashboard -->
+        <div class="slide" data-slide="2">
+          <div class="slide-icon">
+            <i class="bi bi-speedometer2"></i>
+          </div>
+          <div class="slide-title">Intelligent Dashboard</div>
+          <div class="slide-subtitle">Real-time insights at a glance</div>
+          <ul class="feature-list">
+            <li><i class="bi bi-eye"></i> Today's spending, cycle total, daily average & projected total</li>
+            <li><i class="bi bi-phone"></i> Mobile-optimized slider for key metrics</li>
+            <li><i class="bi bi-calculator"></i> Income vs. Spending — know exactly how much you have left</li>
+            <li><i class="bi bi-table"></i> Recent transactions with easy access to full history</li>
+          </ul>
+        </div>
+
+        <!-- Slide 4: SpendBot AI Assistant -->
+        <div class="slide" data-slide="3">
+          <div class="slide-icon">
+            <i class="bi bi-robot"></i>
+          </div>
+          <div class="slide-title">SpendBot — Your Financial Assistant</div>
+          <div class="slide-subtitle">Natural language queries, no AI APIs needed</div>
+          <ul class="feature-list">
+            <li><i class="bi bi-chat-dots"></i> "How much did I spend on milk in March?"</li>
+            <li><i class="bi bi-search"></i> Fuzzy matching — understands typos & suggests items</li>
+            <li><i class="bi bi-credit-card-2-front"></i> EMI intelligence: "Which EMI is coming to an end?"</li>
+            <li><i class="bi bi-graph-up"></i> Automated insights: "Top categories" or "Spending insights"</li>
+          </ul>
+        </div>
+
+        <!-- Slide 5: Analytics & Charts -->
+        <div class="slide" data-slide="4">
+          <div class="slide-icon">
+            <i class="bi bi-bar-chart-steps"></i>
+          </div>
+          <div class="slide-title">Deep-Dive Analytics</div>
+          <div class="slide-subtitle">See your spending patterns clearly</div>
+          <ul class="feature-list">
+            <li><i class="bi bi-funnel"></i> Timeframes: Billing Cycle, 3/6/12 months, custom ranges</li>
+            <li><i class="bi bi-pie-chart"></i> Category breakdown with percentages & totals</li>
+            <li><i class="bi bi-credit-card-2-front"></i> Payment method split — Cash vs. Cards</li>
+            <li><i class="bi bi-search-heart"></i> Purchase audit — track price inflation & frequency</li>
+          </ul>
+        </div>
+
+        <!-- Slide 6: Privacy & Modern UI -->
+        <div class="slide" data-slide="5">
+          <div class="slide-icon">
+            <i class="bi bi-shield-lock"></i>
+          </div>
+          <div class="slide-title">Privacy First. Modern Design.</div>
+          <div class="slide-subtitle">Your data stays yours — always</div>
+          <ul class="feature-list">
+            <li><i class="bi bi-people"></i> Multi-user support with individual secure data files</li>
+            <li><i class="bi bi-cloud-slash"></i> 100% local — no cloud, no tracking, no external APIs</li>
+            <li><i class="bi bi-moon-stars"></i> Dual theme: Dark mode & Light mode</li>
+            <li><i class="bi bi-currency-rupee"></i> Customizable currency symbol</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <div class="slideshow-nav">
+        <div class="nav-dot active" data-nav="0"></div>
+        <div class="nav-dot" data-nav="1"></div>
+        <div class="nav-dot" data-nav="2"></div>
+        <div class="nav-dot" data-nav="3"></div>
+        <div class="nav-dot" data-nav="4"></div>
+        <div class="nav-dot" data-nav="5"></div>
+      </div>
+      <div class="slide-counter">
+        <span id="currentSlideNum">1</span> / <span id="totalSlides">6</span>
+      </div>
+    </div>
+
+    <!-- Right: Login Form -->
+    <div class="login-panel">
+      <!-- Theme Toggle Button -->
+      <button class="theme-toggle" id="themeToggle" title="Switch theme">
+        <i id="themeIcon" class="bi bi-moon-fill"></i>
+      </button>
+
+      <div class="login-card">
+        <h1>Welcome back</h1>
+        <div class="login-subtitle">Sign in to track your finances</div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <span>{{ message }}</span>
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" name="username" class="form-control" placeholder="admin" required autofocus>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" name="password" class="form-control" placeholder="··········" required>
+          </div>
+          <button type="submit" class="btn-login">
+            <span>Sign in</span>
+            <i class="bi bi-arrow-right"></i>
+          </button>
+        </form>
+
+        <div class="privacy-note">
+          <i class="bi bi-database"></i> Local-first · Your data never leaves your machine
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== THEME MANAGEMENT WITH PERSISTENCE ==========
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const icon = document.getElementById('themeIcon');
+      
+      if (theme === 'dark') {
+        icon.classList.remove('bi-moon-fill');
+        icon.classList.add('bi-sun-fill');
+      } else {
+        icon.classList.remove('bi-sun-fill');
+        icon.classList.add('bi-moon-fill');
+      }
+      
+      // Save to localStorage
+      localStorage.setItem('spendsight_theme', theme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      applyTheme(newTheme);
+    }
+
+    // Load saved theme on page load
+    function loadSavedTheme() {
+      const savedTheme = localStorage.getItem('spendsight_theme');
+      const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      
+      if (savedTheme) {
+        applyTheme(savedTheme);
+      } else if (systemPrefersDark) {
+        applyTheme('dark');
+      } else {
+        applyTheme('light');
+      }
+    }
+
+    // ========== SLIDESHOW FUNCTIONALITY ==========
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const dots = document.querySelectorAll('.nav-dot');
+    const totalSlides = slides.length;
+    document.getElementById('totalSlides').innerText = totalSlides;
+
+    function setSlide(index) {
+      slides[currentSlide].classList.remove('active');
+      dots[currentSlide].classList.remove('active');
+      
+      currentSlide = index;
+      
+      slides[currentSlide].classList.add('active');
+      dots[currentSlide].classList.add('active');
+      document.getElementById('currentSlideNum').innerText = currentSlide + 1;
+    }
+
+    function nextSlide() {
+      let next = (currentSlide + 1) % totalSlides;
+      setSlide(next);
+    }
+
+    // Auto-advance every 6 seconds
+    let slideInterval = setInterval(nextSlide, 6000);
+
+    // Manual navigation
+    dots.forEach((dot, idx) => {
+      dot.addEventListener('click', () => {
+        clearInterval(slideInterval);
+        setSlide(idx);
+        slideInterval = setInterval(nextSlide, 6000);
+      });
+    });
+
+    // Pause on hover
+    const slideshowContainer = document.querySelector('.slideshow-container');
+    if (slideshowContainer) {
+      slideshowContainer.addEventListener('mouseenter', () => {
+        clearInterval(slideInterval);
+      });
+      
+      slideshowContainer.addEventListener('mouseleave', () => {
+        slideInterval = setInterval(nextSlide, 6000);
+      });
+    }
+
+    // ========== INITIALIZE ==========
+    loadSavedTheme();
+    
+    // Theme toggle event listener
+    const themeToggleBtn = document.getElementById('themeToggle');
+    if (themeToggleBtn) {
+      themeToggleBtn.addEventListener('click', toggleTheme);
+    }
+
+    // Listen for system theme changes (optional)
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      const savedTheme = localStorage.getItem('spendsight_theme');
+      if (!savedTheme) {
+        applyTheme(e.matches ? 'dark' : 'light');
+      }
+    });
+  </script>
+</body>
+</html>
+</html>

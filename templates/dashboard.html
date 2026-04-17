@@ -1,0 +1,1054 @@
+﻿{% extends "base.html" %}
+{% block title %}Dashboard — SpendSight{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  @keyframes budgetBreath {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: .82;
+    }
+  }
+
+  @keyframes alertGlow {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(240,82,82,0), 0 0 0 rgba(240,82,82,0);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgba(240,82,82,.18), 0 14px 30px rgba(240,82,82,.18);
+    }
+  }
+
+  @keyframes budgetBorderGlow {
+    0%, 100% {
+      box-shadow: 0 0 0 0 rgba(240,82,82,0), 0 0 0 rgba(240,82,82,0), inset 0 0 0 1px rgba(240,82,82,.75);
+      border-color: rgba(240,82,82,.8);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgba(240,82,82,.18), 0 14px 30px rgba(240,82,82,.18), inset 0 0 0 1px rgba(240,82,82,1);
+      border-color: rgba(240,82,82,1);
+    }
+  }
+
+  .budget-breathing {
+    animation: budgetBreath 1.8s ease-in-out infinite;
+  }
+
+  .forecast-alert {
+    animation: alertGlow 1.45s ease-in-out infinite;
+  }
+
+  .budget-over-track {
+    border: 1px solid rgba(240,82,82,.75) !important;
+    animation: budgetBorderGlow 1.45s ease-in-out infinite;
+    background: rgba(240,82,82,.06) !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .budget-breathing,
+    .forecast-alert {
+      animation: none !important;
+    }
+  }
+
+  .cycle-split {
+    margin-top: .35rem;
+    display: grid;
+    gap: .2rem;
+  }
+
+  .cycle-split-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: .7rem;
+    line-height: 1.2;
+    color: rgba(255,255,255,.88);
+  }
+
+  .cycle-split-row strong {
+    font-weight: 800;
+    color: #fff;
+  }
+
+  .stat-detail-list {
+    margin-top: .45rem;
+    display: grid;
+    gap: .24rem;
+  }
+
+  .stat-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: .5rem;
+    font-size: .7rem;
+    line-height: 1.2;
+    color: rgba(255,255,255,.88);
+  }
+
+  .stat-detail-row span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stat-detail-row strong {
+    color: #fff;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  /* ── Stat Card "Slider" (Horizontal scroll on Mobile) ── */
+  .stat-slider-row {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 14px;
+    padding: 2px 4px 18px 4px;
+    margin: 0 -4px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    list-style: none;
+  }
+  .stat-slider-row::-webkit-scrollbar { display: none; }
+  
+  .stat-slider-row > .stat-col {
+    flex: 0 0 86%;
+    scroll-snap-align: start;
+    min-width: 280px;
+  }
+
+  @media (min-width: 1200px) {
+    .stat-slider-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      overflow-x: visible;
+      gap: 16px;
+      padding: 0;
+      margin: 0;
+    }
+    .stat-slider-row > .stat-col {
+      flex: none;
+      width: 100%;
+    }
+  }
+
+  .stat-card {
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(4px);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Billing period banner ── -->
+<div class="billing-banner d-flex align-items-center justify-content-between">
+  <div class="d-flex align-items-center gap-2">
+    <i class="bi bi-calendar-range" style="color:var(--brand);"></i>
+    <span style="font-size:.78rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Billing Period</span>
+    <span class="fw-bold" style="font-size:.95rem;color:var(--brand);">{{ billing_label }}</span>
+    <span class="badge" style="background:var(--brand);color:#fff;font-size:.7rem;">Day {{ days_elapsed }} of {{ days_total }}</span>
+  </div>
+  <a href="{{ url_for('settings') }}" style="font-size:.78rem;color:var(--text-muted);text-decoration:none;">
+    <i class="bi bi-pencil-square"></i> Change
+  </a>
+</div>
+
+<!-- ── Stat cards (Slider on mobile) ── -->
+<div class="stat-slider-row mb-4">
+  <div class="stat-col">
+    <div class="stat-card" style="background: linear-gradient(135deg, #1e429f, #1a56db);">
+      <div class="stat-label">Today</div>
+      <div class="stat-value">{{ format_inr(today_total) }}</div>
+      <div class="stat-sub">{{ today_expenses|length }} transaction{{ 's' if today_expenses|length != 1 }}</div>
+      <div class="stat-detail-list">
+        {% for e in latest_today_expenses %}
+        <div class="stat-detail-row">
+          <span title="{{ e.subcategory }}">{{ e.subcategory }}</span>
+          <strong>{{ format_inr(e.amount) }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      <i class="bi bi-calendar-check-fill stat-icon"></i>
+    </div>
+  </div>
+  <div class="stat-col">
+    <div class="stat-card" style="background: linear-gradient(135deg, #047857, #0e9f6e);">
+      <div class="stat-label">Card Bill This Cycle</div>
+      <div class="stat-value">{{ format_inr(card_cycle_total) }}</div>
+      <div class="stat-sub">{{ billing_label }}</div>
+      <div class="cycle-split">
+        <div class="cycle-split-row">
+          <span>Cash spend</span>
+          <strong>{{ format_inr(cash_cycle_total) }}</strong>
+        </div>
+        <div class="cycle-split-row">
+          <span>Total cycle spend</span>
+          <strong>{{ format_inr(billing_total) }}</strong>
+        </div>
+      </div>
+      <div id="cycleOverspend" style="display:none;font-size:.72rem;font-weight:700;color:#fca5a5;margin-top:3px;letter-spacing:.2px;"></div>
+      <i class="bi bi-credit-card-2-front-fill stat-icon"></i>
+    </div>
+  </div>
+  <div class="stat-col">
+    <div class="stat-card" style="background: linear-gradient(135deg, #6b21a8, #7e3af2);">
+      <div class="stat-label">Daily Avg</div>
+      <div class="stat-value">{{ format_inr(daily_avg) }}</div>
+      <div class="stat-sub">Over {{ days_elapsed }} day{{ 's' if days_elapsed != 1 }}</div>
+      <div class="stat-detail-list">
+        {% for e in biggest_cycle_expenses %}
+        <div class="stat-detail-row">
+          <span title="{{ e.subcategory }}">{{ e.subcategory }}</span>
+          <strong>{{ format_inr(e.amount) }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      <i class="bi bi-graph-up-arrow stat-icon"></i>
+    </div>
+  </div>
+  <div class="stat-col">
+    <div class="stat-card" style="background: linear-gradient(135deg, #b45309, #d97706);">
+      <div class="stat-label">Projected</div>
+      <div class="stat-value">{{ format_inr(projected) }}</div>
+      <div class="stat-sub">Full {{ days_total }}-day cycle</div>
+      <div class="stat-detail-list">
+        {% for m in prev_month_totals %}
+        <div class="stat-detail-row">
+          <span>{{ m.label }}</span>
+          <strong>{{ format_inr(m.total) }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      <i class="bi bi-lightning-fill stat-icon"></i>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     BUDGET OVERVIEW (shown only when salary is set)
+════════════════════════════════════════════════════════════════ -->
+<div id="budgetSection" style="display:none;" class="mb-4">
+  <div class="card">
+    <div class="card-header-custom" style="cursor:pointer;" onclick="toggleBudgetDetail()">
+      <i class="bi bi-cash-stack" style="color:var(--accent)"></i>
+      <span>Budget Overview</span>
+      <span id="budgetCycleLabel" class="ms-2" style="font-size:.78rem;color:var(--text-muted);"></span>
+      <!-- Quick status badge -->
+      <span id="budgetStatusBadge" class="ms-2 badge" style="font-size:.7rem;"></span>
+      <div class="ms-auto d-flex align-items-center gap-3">
+        <span id="budgetRemainingQuick" style="font-size:.88rem;font-weight:700;"></span>
+        <i id="budgetChevron" class="bi bi-chevron-down" style="color:var(--text-muted);font-size:.75rem;"></i>
+      </div>
+    </div>
+
+    <div id="budgetDetail">
+      <div class="card-body p-3">
+
+        <!-- Row: Income | EMIs | Available | Spent | Remaining -->
+        <div class="row g-2 mb-3">
+          <div class="col-6 col-md">
+            <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;">
+              <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Income</div>
+              <div id="bIncome" style="font-size:1.1rem;font-weight:800;color:var(--accent);margin-top:2px;">—</div>
+              <div id="bIncomeBreak" style="font-size:.7rem;color:var(--text-muted);margin-top:2px;"></div>
+            </div>
+          </div>
+          <div class="col-6 col-md">
+            <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;">
+              <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Fixed EMIs</div>
+              <div id="bEmis" style="font-size:1.1rem;font-weight:800;color:var(--warn);margin-top:2px;">—</div>
+              <div id="bEmisBreak" style="font-size:.7rem;color:var(--text-muted);margin-top:2px;"></div>
+            </div>
+          </div>
+          <div class="col-6 col-md">
+            <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;">
+              <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Discretionary Budget</div>
+              <div id="bAvailable" style="font-size:1.1rem;font-weight:800;color:var(--brand);margin-top:2px;">—</div>
+              <div style="font-size:.7rem;color:var(--text-muted);margin-top:2px;">Income − EMIs</div>
+            </div>
+          </div>
+          <div class="col-6 col-md">
+            <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;">
+              <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Card Load This Cycle</div>
+              <div id="bSpent" style="font-size:1.1rem;font-weight:800;color:var(--danger);margin-top:2px;">—</div>
+              <div id="bSpentSub" style="font-size:.7rem;color:var(--text-muted);margin-top:2px;">Non-cash spending only</div>
+            </div>
+          </div>
+          <div class="col-12 col-md">
+            <div id="bRemainingCard" style="border-radius:10px;padding:.75rem 1rem;border:2px solid var(--border);">
+              <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Remaining</div>
+              <div id="bRemaining" style="font-size:1.2rem;font-weight:800;margin-top:2px;">—</div>
+              <div id="bRemainingDesc" style="font-size:.7rem;margin-top:2px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Budget progress bar -->
+        <div class="mb-1 d-flex justify-content-between align-items-center" style="font-size:.75rem;color:var(--text-muted);">
+          <span>Budget usage</span>
+          <span id="bUsagePct">—</span>
+        </div>
+        <div id="bProgressTrack" class="progress mb-3" style="height:10px;border-radius:99px;background:var(--border);">
+          <div id="bProgressBar" class="progress-bar" style="width:0%;border-radius:99px;transition:width .5s;"></div>
+        </div>
+
+        <!-- Net savings line -->
+        <div id="bNetSavingsRow"
+             style="display:flex;align-items:center;justify-content:space-between;
+                    padding:.6rem 1rem;border-radius:8px;border:1px solid var(--border);">
+          <div style="font-size:.82rem;font-weight:600;color:var(--text-secondary);">
+            <i class="bi bi-piggy-bank-fill me-2"></i>
+            Projected savings after card load
+            <small style="font-weight:400;color:var(--text-muted);font-size:.73rem;"> (Income − EMIs − Non-cash spend)</small>
+          </div>
+          <div id="bNetSavings" style="font-size:1rem;font-weight:800;">—</div>
+        </div>
+
+        <!-- Link to full page -->
+        <div class="mt-2 text-end">
+          <a href="{{ url_for('income') }}" style="font-size:.78rem;color:var(--text-muted);text-decoration:none;">
+            <i class="bi bi-arrow-right-circle me-1"></i>Manage income &amp; EMIs →
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- No salary prompt (shown when salary not set) -->
+<div id="noSalaryPrompt" class="mb-4"
+     style="background:var(--surface-2);border:1px dashed var(--border-2);border-radius:12px;
+            padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;">
+  <div style="font-size:.85rem;color:var(--text-muted);">
+    <i class="bi bi-cash-stack me-2" style="color:var(--accent)"></i>
+    Set your monthly salary to unlock budget tracking &amp; savings insights.
+  </div>
+  <a href="{{ url_for('income') }}" class="btn btn-sm btn-brand">
+    <i class="bi bi-plus-circle-fill me-1"></i> Set Salary
+  </a>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     3-MONTH SPENDING GUIDE
+════════════════════════════════════════════════════════════════ -->
+<div id="forecastSection" class="card mb-4" style="display:none;">
+  <div class="card-header-custom">
+    <i class="bi bi-calendar3-week-fill" style="color:#7E3AF2"></i>
+    <span>3-Month Spending Guide</span>
+    <span class="ms-2" style="font-size:.76rem;color:var(--text-muted);font-weight:400;">
+      Based on your last 3 months avg non-cash spend
+    </span>
+    <div class="ms-auto">
+      <span id="forecastAvgBadge" class="badge" style="background:var(--surface-3);color:var(--text-secondary);font-size:.72rem;font-weight:600;"></span>
+    </div>
+  </div>
+  <div class="card-body p-3">
+    <div class="row g-3" id="forecastCards">
+      <!-- injected by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     ANALYTICS SECTION with period filter
+════════════════════════════════════════════════════════════════ -->
+<div class="card mb-4">
+  <!-- Header with period pills -->
+  <div class="card-header-custom flex-wrap gap-2">
+    <i class="bi bi-bar-chart-fill" style="color:var(--brand)"></i>
+    <span>Spending Analytics</span>
+    <div class="ms-auto d-flex align-items-center flex-wrap gap-1" id="periodPills">
+      <button class="period-pill active" data-period="billing"  onclick="setPeriod(this,'billing')">Billing Cycle</button>
+      <button class="period-pill"        data-period="3months"  onclick="setPeriod(this,'3months')">3 Months</button>
+      <button class="period-pill"        data-period="6months"  onclick="setPeriod(this,'6months')">6 Months</button>
+      <button class="period-pill"        data-period="12months" onclick="setPeriod(this,'12months')">12 Months</button>
+      <button class="period-pill"        data-period="year"     onclick="setPeriod(this,'year')">Cal. Year</button>
+      <button class="period-pill"        data-period="custom"   onclick="setPeriod(this,'custom')">Custom</button>
+    </div>
+  </div>
+
+  <!-- Custom date row (hidden by default) -->
+  <div id="customDateRow" style="display:none;padding:10px 18px;border-bottom:1px solid var(--border);background:var(--surface-2);">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <span style="font-size:.82rem;font-weight:600;color:var(--text-muted);">From</span>
+      <input type="date" id="customFrom" class="form-control form-control-sm" style="width:160px;"
+             value="{{ today }}" onchange="loadPeriodData()">
+      <span style="font-size:.82rem;font-weight:600;color:var(--text-muted);">To</span>
+      <input type="date" id="customTo"   class="form-control form-control-sm" style="width:160px;"
+             value="{{ today }}" onchange="loadPeriodData()">
+    </div>
+  </div>
+
+  <div class="card-body p-3">
+
+    <!-- Summary mini-stats for selected period -->
+    <div class="row g-2 mb-3" id="periodSummary">
+      <div class="col-6 col-md-3">
+        <div class="stat-mini"><div class="v" id="pTotal">—</div><div class="l">Total Spent</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-mini"><div class="v" id="pCount">—</div><div class="l">Transactions</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-mini"><div class="v" id="pAvg">—</div><div class="l">Daily Average</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-mini"><div class="v" id="pTopCat">—</div><div class="l">Top Category</div></div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+
+      <!-- Category Breakdown — horizontal bar rows -->
+      <div class="col-md-6">
+        <div class="chart-card h-100">
+          <div class="chart-title">
+            <i class="bi bi-bar-chart-steps" style="color:var(--brand)"></i>
+            By Category
+            <small class="ms-auto fw-normal" id="periodLabel" style="color:var(--text-muted);font-size:.78rem;"></small>
+          </div>
+          <div id="dashCatRows"></div>
+        </div>
+      </div>
+
+      <!-- Payment Methods — horizontal bar rows -->
+      <div class="col-md-6">
+        <div class="chart-card h-100">
+          <div class="chart-title">
+            <i class="bi bi-credit-card-fill" style="color:var(--accent)"></i>
+            Payment Methods
+          </div>
+          <div id="dashPmRows"></div>
+        </div>
+      </div>
+
+      <!-- Daily spend bar chart (moved below and set to col-12) -->
+      <div class="col-12">
+        <div class="chart-card">
+          <div class="chart-title">
+            <i class="bi bi-bar-chart-fill" style="color:var(--warn)"></i>
+            Daily Spending
+          </div>
+          <!-- Increased height from 260px to 300px for better visibility -->
+          <div style="position:relative;height:300px;">
+            <canvas id="dashDailyChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /row -->
+  </div><!-- /card-body -->
+</div><!-- /analytics card -->
+
+<!-- ── Category Budget Tracker ── -->
+{% set tracked = budget_status | selectattr('status', 'ne', 'no-limit') | list %}
+{% if tracked %}
+<div class="card mb-4">
+  <div class="card-header-custom">
+    <i class="bi bi-shield-check-fill" style="color:#0E9F6E"></i>
+    Category Budget Tracker
+    <span class="ms-2" style="font-size:.76rem;color:var(--text-muted);font-weight:400;">This billing cycle</span>
+    <a href="{{ url_for('settings') }}#budget-limits" class="ms-auto" style="font-size:.78rem;color:var(--text-muted);text-decoration:none;">
+      <i class="bi bi-pencil-square"></i> Edit limits →
+    </a>
+  </div>
+  <div class="card-body p-3">
+    <div class="row g-3">
+      {% for b in tracked %}
+      <div class="col-12 col-md-6">
+        <div style="padding:.6rem .75rem;background:var(--surface-2);border-radius:10px;border:1px solid var(--border);">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="cat-badge" style="background:{{ b.color }};">{{ b.category }}</span>
+            <span style="font-size:.78rem;font-weight:700;
+                         color:{{ 'var(--danger)' if b.status == 'over' else ('var(--warn)' if b.status == 'warning' else 'var(--accent)') }};">
+              {{ b.pct }}%
+            </span>
+          </div>
+          <div class="progress mb-1" style="height:7px;border-radius:99px;background:var(--border);">
+            <div class="progress-bar"
+                 style="width:{{ [b.pct, 100] | min }}%;border-radius:99px;transition:width .5s;
+                        background:{{ '#F05252' if b.status == 'over' else ('#E3A008' if b.status == 'warning' else '#0E9F6E') }};">
+            </div>
+          </div>
+          <div class="d-flex justify-content-between" style="font-size:.72rem;color:var(--text-muted);">
+            <span>{{ format_inr(b.spent) }} spent</span>
+            <span>Limit: {{ format_inr(b.limit) }}</span>
+          </div>
+          {% if b.status == 'over' %}
+          <div style="font-size:.7rem;color:var(--danger);font-weight:600;margin-top:2px;">
+            <i class="bi bi-exclamation-triangle-fill"></i> Over by {{ format_inr(b.spent - b.limit) }}
+          </div>
+          {% elif b.status == 'warning' %}
+          <div style="font-size:.7rem;color:var(--warn);font-weight:600;margin-top:2px;">
+            <i class="bi bi-exclamation-circle-fill"></i> {{ format_inr(b.limit - b.spent) }} remaining
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="mb-4 p-3 d-flex align-items-center justify-content-between"
+     style="background:var(--surface-2);border:1px dashed var(--border-2);border-radius:12px;flex-wrap:wrap;gap:.5rem;">
+  <div style="font-size:.85rem;color:var(--text-muted);">
+    <i class="bi bi-shield-check me-2" style="color:#0E9F6E"></i>
+    Set per-category budget limits to track your spending caps here.
+  </div>
+  <a href="{{ url_for('settings') }}#budget-limits" class="btn btn-sm btn-outline-success">
+    <i class="bi bi-plus-circle-fill me-1"></i> Set Budget Limits
+  </a>
+</div>
+{% endif %}
+
+<!-- ── Bottom row: Templates + Recent ── -->
+<div class="row g-3">
+
+  {% if templates %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-lightning-fill" style="color:var(--warn)"></i>
+        Quick Add Templates
+        <a href="{{ url_for('manage_templates') }}" class="ms-auto" style="font-size:.78rem;color:var(--text-muted);text-decoration:none;">Manage →</a>
+      </div>
+      <div class="card-body p-3">
+        <div class="row g-2">
+          {% for t in templates %}
+          <div class="col-6 col-md-3 col-lg-2">
+            <a href="{{ url_for('add_from_template', template_id=t.id) }}" class="template-btn">
+              <span class="cat-badge mb-1" style="background:{{ get_category_color(t.category) }};">{{ t.category[:8] }}</span>
+              <div class="t-name">{{ t.name }}</div>
+              <div class="t-sub">{{ currency_symbol }}{{ "%.0f"|format(t.amount) }} · {{ t.payment_method }}</div>
+            </a>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Recent transactions -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-clock-history" style="color:#7E3AF2"></i>
+        Recent Transactions
+        <a href="{{ url_for('view_expenses') }}" class="ms-auto" style="font-size:.78rem;color:var(--text-muted);text-decoration:none;">View all →</a>
+      </div>
+      <div class="card-body p-0">
+        {% if recent %}
+        <div class="table-responsive">
+          <table class="table expense-table mb-0">
+            <thead><tr>
+              <th class="ps-3">Date</th>
+              <th>Category</th>
+              <th>Item</th>
+              <th>Payment</th>
+              <th class="text-end pe-3">Amount</th>
+            </tr></thead>
+            <tbody>
+              {% for e in recent %}
+              <tr>
+                <td class="ps-3" style="color:var(--text-muted);font-size:.8rem;white-space:nowrap;">{{ e.date }}</td>
+                <td><span class="cat-badge" style="background:{{ get_category_color(e.category) }};">{{ e.category }}</span></td>
+                <td class="fw-semibold">{{ e.subcategory }}{% set note = e.notes or e.note or '' %}{% if note %}<br><small style="color:var(--text-muted);font-weight:400;">{{ note[:40] }}</small>{% endif %}</td>
+                <td><span class="pm-badge {{ 'pm-cash' if e.payment_method == 'Cash' else ('pm-rupee' if e.payment_method == 'Rupee Card' else 'pm-card') }}">{{ e.payment_method }}</span></td>
+                <td class="text-end pe-3 fw-bold">{{ currency_symbol }}{{ "%.0f"|format(e.amount) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5" style="color:var(--text-muted);">
+          <i class="bi bi-receipt" style="font-size:2.5rem;"></i>
+          <p class="mt-2">No expenses yet. Start tracking!</p>
+          <a href="{{ url_for('add_expense') }}" class="btn btn-brand btn-sm">Add First Expense</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div><!-- /bottom row -->
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let dashDaily;
+let currentPeriod = 'billing';
+let periodDates = { start: '', end: '' };
+
+const PM_COLORS = ['#1A56DB','#0E9F6E','#E3A008','#7E3AF2','#F05252','#FF8C00'];
+// Named colours for specific payment methods so EMI always looks consistent
+const PM_COLOR_MAP = { 'EMI': '#7E3AF2', 'Cash': '#0E9F6E' };
+function pmColor(label, idx) { return PM_COLOR_MAP[label] || PM_COLORS[idx] || '#9CA3AF'; }
+
+function setPeriod(btn, period) {
+  document.querySelectorAll('.period-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentPeriod = period;
+  document.getElementById('customDateRow').style.display = period === 'custom' ? 'flex' : 'none';
+  if (period !== 'custom') loadPeriodData();
+}
+
+async function loadPeriodData() {
+  let url = `/api/period-stats?period=${currentPeriod}`;
+  if (currentPeriod === 'custom') {
+    const f = document.getElementById('customFrom').value;
+    const t = document.getElementById('customTo').value;
+    if (!f || !t) return;
+    url += `&from=${f}&to=${t}`;
+  }
+
+  const res  = await fetch(url);
+  const data = await res.json();
+  
+  periodDates.start = data.start;
+  periodDates.end = data.end;
+
+  // ── Summary stats ──
+  document.getElementById('pTotal').textContent  = fmtINR(data.total);
+  document.getElementById('pCount').textContent  = data.count;
+  document.getElementById('pAvg').textContent    = fmtINR(data.daily_avg);
+  document.getElementById('pTopCat').textContent = data.cat_labels[0] || '—';
+  document.getElementById('periodLabel').textContent = data.label;
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const labelColor = isDark ? '#8b949e' : '#475569';
+
+  // ── Category bar rows ──
+  function barRow(label, color, pct, amount, onclickStr) {
+    return `<div class="d-flex align-items-center gap-2 px-1 py-2"
+         style="border-bottom:1px solid var(--border);cursor:pointer;"
+         onclick="${onclickStr}">
+      <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
+      <span style="font-size:.81rem;color:var(--text-secondary);width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;" title="${label}">${label}</span>
+      <div style="flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden;">
+        <div style="width:${pct}%;height:100%;background:${color};border-radius:99px;transition:width .45s ease;"></div>
+      </div>
+      <span style="font-size:.72rem;color:var(--text-muted);width:34px;text-align:right;flex-shrink:0;">${pct}%</span>
+      <span style="font-size:.82rem;font-weight:700;color:var(--text-primary);width:74px;text-align:right;flex-shrink:0;">${fmtINR(amount)}</span>
+    </div>`;
+  }
+
+  document.getElementById('dashCatRows').innerHTML = data.cat_labels.map((l, i) =>
+    barRow(l, data.cat_colors[i], data.cat_pct[i], data.cat_amounts[i],
+      `showTransactionDetails('category','${l.replace(/'/g,"\\'").replace(/"/g,"&quot;")}',periodDates.start,periodDates.end)`)
+  ).join('');
+
+  // ── Daily bar chart ──
+  const dailyCtx = document.getElementById('dashDailyChart').getContext('2d');
+  if (dashDaily) dashDaily.destroy();
+
+  // Color bars: past = brand blue, today = accent green, future = faint
+  const todayStr = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short'}).replace(' ',' ');
+  const barColors = data.day_labels.map((l, i) => {
+    if (data.day_amounts[i] === 0) return isDark ? '#21262d' : '#e2e8f0';
+    return '#1A56DB';
+  });
+
+  dashDaily = new Chart(dailyCtx, {
+    type: 'bar',
+    data: {
+      labels:   data.day_labels,
+      datasets: [{
+        data:            data.day_amounts,
+        backgroundColor: barColors,
+        borderRadius:    3,
+        borderSkipped:   false,
+      }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => ` ${fmtINR(c.raw)}` } }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: isDark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)' },
+          ticks: { color: labelColor, callback: v => `${window.CURRENCY_SYMBOL}${(v/1000).toFixed(0)}k` }
+        },
+        x: {
+          grid: { display: false },
+          ticks: {
+            color: labelColor,
+            autoSkip: true,
+            maxTicksLimit: 15,
+            maxRotation: 45,
+            minRotation: 0,
+            font: {
+              size: 10
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // ── Payment method bar rows ──
+  if (data.pm_labels.length) {
+    const pmTotal = data.pm_amounts.reduce((a, b) => a + b, 0) || 1;
+    document.getElementById('dashPmRows').innerHTML = data.pm_labels.map((l, i) => {
+      const pct = Math.round(data.pm_amounts[i] / pmTotal * 1000) / 10;
+      return barRow(l, pmColor(l, i), pct, data.pm_amounts[i],
+        `showTransactionDetails('payment','${l.replace(/'/g,"\\'").replace(/"/g,"&quot;")}',periodDates.start,periodDates.end)`);
+    }).join('');
+  }
+}
+
+// Re-render charts when theme changes (so colours update)
+const origToggle = window.toggleTheme;
+window.toggleTheme = function() { origToggle(); setTimeout(loadPeriodData, 250); };
+
+// Initial load
+loadPeriodData();
+
+// ── Budget Overview ────────────────────────────────────────────────────────
+let budgetDetailOpen = true;
+
+function toggleBudgetDetail() {
+  const detail  = document.getElementById('budgetDetail');
+  const chevron = document.getElementById('budgetChevron');
+  budgetDetailOpen = !budgetDetailOpen;
+  detail.style.display  = budgetDetailOpen ? 'block' : 'none';
+  chevron.className = budgetDetailOpen ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+  chevron.style.color = 'var(--text-muted)';
+}
+
+async function loadBudgetOverview() {
+  try {
+    const res = await fetch('/api/budget-summary');
+    const d   = await res.json();
+
+    const noSalary = document.getElementById('noSalaryPrompt');
+    const section  = document.getElementById('budgetSection');
+
+    if (!d.has_salary) {
+      noSalary.style.display = 'flex';
+      section.style.display  = 'none';
+      return;
+    }
+    noSalary.style.display = 'none';
+    section.style.display  = 'block';
+
+    // Header
+    document.getElementById('budgetCycleLabel').textContent = d.billing_label;
+
+    // Cards
+    const extraStr = d.extra_income > 0 ? ` + ${fmtINR(d.extra_income)} extra` : 'salary only';
+    document.getElementById('bIncome').textContent      = fmtINR(d.total_income);
+    document.getElementById('bIncomeBreak').textContent = extraStr;
+    document.getElementById('bEmis').textContent        = fmtINR(d.emi_total);
+    document.getElementById('bEmisBreak').textContent   = d.emi_total > 0 ? 'committed this cycle' : 'none active';
+    document.getElementById('bAvailable').textContent   = fmtINR(d.available);
+    document.getElementById('bSpent').textContent       = fmtINR(d.billing_spent);
+    const spentSub = document.getElementById('bSpentSub');
+    if (spentSub) {
+      spentSub.textContent = d.cash_spent > 0
+        ? `Cash kept separate: ${fmtINR(d.cash_spent)}`
+        : 'Non-cash spending only';
+    }
+
+    // Remaining card
+    const rem     = d.remaining;
+    const remEl   = document.getElementById('bRemaining');
+    const remCard = document.getElementById('bRemainingCard');
+    const remDesc = document.getElementById('bRemainingDesc');
+    remEl.textContent  = fmtINR(Math.abs(rem));
+    if (rem >= 0) {
+      remEl.style.color        = 'var(--accent)';
+      remCard.style.borderColor = 'var(--accent)';
+      remDesc.textContent      = 'left to spend';
+      remDesc.style.color      = 'var(--accent)';
+    } else {
+      remEl.style.color        = 'var(--danger)';
+      remCard.style.borderColor = 'var(--danger)';
+      remDesc.textContent      = 'over budget';
+      remDesc.style.color      = 'var(--danger)';
+    }
+
+    // Progress bar
+    const usedPct = d.available > 0 ? Math.min(Math.round(d.billing_spent / d.available * 100), 100) : 0;
+    const overPct = d.available > 0 ? Math.round(d.billing_spent / d.available * 100) : 0;
+    const bar     = document.getElementById('bProgressBar');
+    const track   = document.getElementById('bProgressTrack');
+    bar.style.width      = usedPct + '%';
+    bar.style.background = overPct >= 100 ? 'var(--danger)' : overPct >= 80 ? 'var(--warn)' : 'var(--accent)';
+    bar.classList.remove('budget-breathing');
+    if (track) track.classList.toggle('budget-over-track', overPct >= 100);
+    document.getElementById('bUsagePct').textContent = overPct + '% used';
+
+    // Status badge
+    const badge = document.getElementById('budgetStatusBadge');
+    const quick = document.getElementById('budgetRemainingQuick');
+    if (overPct >= 100) {
+      badge.textContent   = '⚠ Over budget';
+      badge.style.background = 'var(--danger)';
+      badge.style.color   = '#fff';
+      quick.textContent   = fmtINR(Math.abs(rem)) + ' over';
+      quick.style.color   = 'var(--danger)';
+    } else if (overPct >= 80) {
+      badge.textContent   = '⚡ Approaching limit';
+      badge.style.background = 'var(--warn)';
+      badge.style.color   = '#fff';
+      quick.textContent   = fmtINR(rem) + ' left';
+      quick.style.color   = 'var(--warn)';
+    } else {
+      badge.textContent   = '✓ On track';
+      badge.style.background = 'var(--accent)';
+      badge.style.color   = '#fff';
+      quick.textContent   = fmtINR(rem) + ' left';
+      quick.style.color   = 'var(--accent)';
+    }
+
+    // Net savings row
+    const savingsRow = document.getElementById('bNetSavingsRow');
+    const savingsEl  = document.getElementById('bNetSavings');
+    savingsEl.textContent = fmtINR(Math.abs(d.net_savings));
+    if (d.net_savings >= 0) {
+      savingsEl.style.color   = 'var(--accent)';
+      savingsRow.style.background = 'rgba(14,159,110,.06)';
+      savingsRow.style.borderColor = 'rgba(14,159,110,.3)';
+    } else {
+      savingsEl.textContent = '−' + fmtINR(Math.abs(d.net_savings));
+      savingsEl.style.color   = 'var(--danger)';
+      savingsRow.style.background = 'rgba(240,82,82,.06)';
+      savingsRow.style.borderColor = 'rgba(240,82,82,.3)';
+    }
+
+    // ── Overspend indicator on "This Cycle" stat card ──
+    const overspendEl = document.getElementById('cycleOverspend');
+    if (overspendEl) {
+      if (d.billing_spent > d.total_income && d.total_income > 0) {
+        const over = d.billing_spent - d.total_income;
+        overspendEl.textContent = '⚠ −' + fmtINR(over) + ' over income';
+        overspendEl.style.display = 'block';
+      } else {
+        overspendEl.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Budget overview error:', err);
+  }
+}
+
+loadBudgetOverview();
+
+// ── 3-Month Spending Forecast ──────────────────────────────────────────────
+let forecastData = null;
+
+async function loadSpendingForecast() {
+  try {
+    const res = await fetch('/api/spending-forecast');
+    forecastData = await res.json();
+    const d = forecastData;
+    const section = document.getElementById('forecastSection');
+    if (!d.has_salary) { section.style.display = 'none'; return; }
+
+    section.style.display = 'block';
+    document.getElementById('forecastAvgBadge').textContent =
+      'Avg last 3 months: ' + fmtINR(d.avg_spend);
+
+    document.getElementById('forecastCards').innerHTML = d.months.map((m, i) => {
+      const safe       = m.status === 'safe';
+      const borderCol  = safe ? 'var(--accent)' : 'var(--danger)';
+      const balColor   = safe ? 'var(--accent)' : 'var(--danger)';
+      const balPrefix  = m.projected_bal >= 0 ? '+' : '−';
+      const balAmt     = fmtINR(Math.abs(m.projected_bal));
+      const usedPct    = m.available > 0
+        ? Math.min(Math.round(m.avg_spend / m.available * 100), 100) : 0;
+      const barCol     = usedPct >= 100 ? 'var(--danger)'
+                       : usedPct >= 80  ? 'var(--warn)' : 'var(--accent)';
+
+      const extraRow = m.extra_income > 0
+        ? `<div style="font-size:.71rem;color:var(--text-muted);margin-top:1px;">
+             + ${fmtINR(m.extra_income)} extra income
+           </div>` : '';
+
+      const emiRow = m.emi_total > 0
+        ? `<div class="d-flex justify-content-between" style="font-size:.78rem;padding:4px 0;border-bottom:1px solid var(--border);">
+             <span style="color:var(--text-muted)"><i class="bi bi-credit-card me-1"></i>Fixed EMIs</span>
+             <span style="color:var(--warn);font-weight:700;">−${fmtINR(m.emi_total)}</span>
+           </div>` : '';
+
+      return `
+      <div class="col-12 col-md-4">
+        <div onclick="showForecastDetails(${i})"
+             class="${!safe && usedPct >= 100 ? 'forecast-alert' : ''}"
+             style="border:2px solid ${borderCol};border-radius:12px;padding:1rem;background:var(--surface-2);height:100%;cursor:pointer;transition:transform .2s, box-shadow .2s;"
+             onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='var(--shadow-md)';"
+             onmouseout="this.style.transform='none';this.style.boxShadow='none';">
+
+          <!-- Month header -->
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div>
+              <div style="font-size:.95rem;font-weight:800;color:var(--text-primary);">${m.label}</div>
+              <div style="font-size:.71rem;color:var(--text-muted);">${m.period}</div>
+            </div>
+            <span class="badge" style="background:${safe ? 'var(--accent)' : 'var(--danger)'};color:#fff;font-size:.68rem;">
+              ${safe ? '✓ On track' : '⚠ At risk'}
+            </span>
+          </div>
+
+          <!-- Income / EMI rows -->
+          <div style="border-top:1px solid var(--border);padding-top:.5rem;margin-bottom:.5rem;">
+            <div class="d-flex justify-content-between" style="font-size:.78rem;padding:4px 0;border-bottom:1px solid var(--border);">
+              <span style="color:var(--text-muted)"><i class="bi bi-cash-stack me-1"></i>Income</span>
+              <div style="text-align:right;">
+                <span style="color:var(--accent);font-weight:700;">${fmtINR(m.total_income)}</span>
+                ${extraRow}
+              </div>
+            </div>
+            ${emiRow}
+            <div class="d-flex justify-content-between" style="font-size:.78rem;padding:4px 0;">
+              <span style="color:var(--text-muted)"><i class="bi bi-wallet2 me-1"></i>Budget left</span>
+              <span style="color:var(--brand);font-weight:700;">${fmtINR(m.available)}</span>
+            </div>
+          </div>
+
+          <!-- Avg spend vs budget bar -->
+          <div style="margin-bottom:.6rem;">
+            <div class="d-flex justify-content-between" style="font-size:.71rem;color:var(--text-muted);margin-bottom:3px;">
+              <span>Your avg non-cash spend</span>
+              <span style="font-weight:600;color:var(--text-secondary);">${fmtINR(m.avg_spend)} / ${usedPct}%</span>
+            </div>
+            <div style="height:7px;background:var(--border);border-radius:99px;overflow:hidden;">
+              <div class="${usedPct >= 100 ? 'budget-breathing' : ''}" style="width:${usedPct}%;height:100%;background:${barCol};border-radius:99px;transition:width .5s;"></div>
+            </div>
+          </div>
+
+          <!-- Projected balance -->
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      background:var(--surface);border-radius:8px;padding:.4rem .75rem;
+                      border:1px solid ${borderCol};">
+            <span style="font-size:.75rem;color:var(--text-muted);font-weight:600;">Projected balance</span>
+            <span style="font-size:1rem;font-weight:800;color:${balColor};">${balPrefix}${balAmt}</span>
+          </div>
+
+        </div>
+      </div>`;
+    }).join('');
+
+  } catch (err) {
+    console.error('Forecast error:', err);
+  }
+}
+
+function showForecastDetails(index) {
+  if (!forecastData || !forecastData.months[index]) return;
+  const m = forecastData.months[index];
+  const modalEl = document.getElementById('forecastDetailModal');
+  const body = document.getElementById('forecastDetailBody');
+  const title = document.getElementById('forecastDetailTitle');
+
+  title.textContent = m.label + ' Details';
+
+  let emiHtml = '';
+  if (m.emis && m.emis.length > 0) {
+    emiHtml = `
+      <div class="mt-3 mb-2" style="font-size:.85rem; font-weight:700; color:var(--text-secondary);">Fixed Expenses & EMIs</div>
+      <div class="table-responsive">
+        <table class="table table-sm table-borderless mb-0" style="font-size:.82rem;">
+          <tbody>
+            ${m.emis.map(e => `
+              <tr>
+                <td class="ps-0" style="color:var(--text-muted);">${e.name}</td>
+                <td class="text-end pe-0 fw-bold" style="color:var(--danger);">−${fmtINR(e.amount)}</td>
+              </tr>
+            `).join('')}
+            <tr style="border-top:1px dashed var(--border);">
+              <td class="ps-0 fw-bold" style="color:var(--text-primary);">Total Fixed</td>
+              <td class="text-end pe-0 fw-bold" style="color:var(--danger);">−${fmtINR(m.emi_total)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    `;
+  } else {
+    emiHtml = '<div class="mt-3 text-center text-muted" style="font-size:.8rem; padding:1rem; border:1px dashed var(--border); border-radius:8px;">No fixed expenses for this month.</div>';
+  }
+
+  body.innerHTML = `
+    <div style="background:var(--surface-2); border-radius:10px; padding:1rem; margin-bottom:1.5rem;">
+      <div class="d-flex justify-content-between mb-2">
+        <span style="font-size:.85rem; color:var(--text-muted);">Monthly Salary</span>
+        <span style="font-size:.85rem; font-weight:700; color:var(--accent);">${fmtINR(m.salary)}</span>
+      </div>
+      <div class="d-flex justify-content-between mb-2">
+        <span style="font-size:.85rem; color:var(--text-muted);">Extra Income</span>
+        <span style="font-size:.85rem; font-weight:700; color:var(--accent);">+${fmtINR(m.extra_income)}</span>
+      </div>
+      <div class="d-flex justify-content-between pt-2" style="border-top:1px solid var(--border);">
+        <span style="font-size:.9rem; font-weight:700; color:var(--text-primary);">Total Income</span>
+        <span style="font-size:.9rem; font-weight:800; color:var(--accent);">${fmtINR(m.total_income)}</span>
+      </div>
+    </div>
+
+    ${emiHtml}
+
+    <div class="mt-4 p-3" style="background:var(--brand-light); border-radius:10px; border:1px solid var(--brand-border);">
+      <div class="d-flex justify-content-between mb-2">
+        <span style="font-size:.85rem; color:var(--text-muted);">Budget Left (Available)</span>
+        <span style="font-size:.85rem; font-weight:700; color:var(--brand);">${fmtINR(m.available)}</span>
+      </div>
+      <div class="d-flex justify-content-between mb-2">
+        <span style="font-size:.85rem; color:var(--text-muted);">Avg. Monthly Spend</span>
+        <span style="font-size:.85rem; font-weight:700; color:var(--text-secondary);">${fmtINR(m.avg_spend)}</span>
+      </div>
+      <div class="d-flex justify-content-between pt-2" style="border-top:1px solid var(--brand-border);">
+        <span style="font-size:.95rem; font-weight:800; color:var(--text-primary);">Projected Balance</span>
+        <span style="font-size:1.1rem; font-weight:900; color:${m.status === 'safe' ? 'var(--accent)' : 'var(--danger)'};">
+          ${m.projected_bal >= 0 ? '+' : '−'}${fmtINR(Math.abs(m.projected_bal))}
+        </span>
+      </div>
+    </div>
+
+    <div class="mt-3 text-center" style="font-size:.7rem; color:var(--text-muted); line-height:1.4;">
+      <i class="bi bi-info-circle me-1"></i>
+      This guide helps you plan your spending by deducting fixed commitments (EMIs) from your total income and comparing the remainder with your average variable spending over the last 3 months.
+    </div>
+  `;
+
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+}
+
+loadSpendingForecast();
+  
+
+</script>
+
+<!-- Forecast Detail Modal -->
+<div class="modal fade" id="forecastDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:440px;">
+    <div class="modal-content" style="border-radius:15px; border:none; box-shadow:var(--shadow-lg);">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold" id="forecastDetailTitle">Spending Guide Details</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" style="font-size:.7rem;"></button>
+      </div>
+      <div class="modal-body p-3" id="forecastDetailBody">
+        <!-- Content injected here -->
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+
+
+

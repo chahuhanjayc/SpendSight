@@ -1,0 +1,904 @@
+{% extends "base.html" %}
+{% block title %}Income &amp; Budget — SpendSight{% endblock %}
+{% block page_title %}Income &amp; Budget{% endblock %}
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<style>
+  .action-card {
+    cursor: pointer;
+    transition: all .2s;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 1.25rem;
+    text-align: center;
+  }
+  .action-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--brand);
+    box-shadow: var(--shadow-md);
+    background: var(--brand-light);
+  }
+  .action-card .icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin: 0 auto 0.75rem;
+  }
+  .action-card .title {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+  }
+  .action-card .subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  /* List headers */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .section-header h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Quick Actions ───────────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="action-card" data-bs-toggle="modal" data-bs-target="#salaryModal">
+      <div class="icon-box" style="background:var(--accent-light); color:var(--accent);">
+        <i class="bi bi-briefcase-fill"></i>
+      </div>
+      <div class="title">Monthly Salary</div>
+      <div class="subtitle">Update your income sources</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="action-card" data-bs-toggle="modal" data-bs-target="#extraIncomeModal">
+      <div class="icon-box" style="background:var(--brand-light); color:var(--brand);">
+        <i class="bi bi-plus-circle-fill"></i>
+      </div>
+      <div class="title">Add Extra Income</div>
+      <div class="subtitle">Freelance, bonus, gifts...</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="action-card" data-bs-toggle="modal" data-bs-target="#emiModal">
+      <div class="icon-box" style="background:rgba(227,160,8,.15); color:var(--warn);">
+        <i class="bi bi-credit-card-2-front-fill"></i>
+      </div>
+      <div class="title">Add EMI / Fixed Expense</div>
+      <div class="subtitle">Track loans and installments</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── EMI Tracker (Now sorted by remaining months) ───────────────────────── -->
+<div class="card mb-4">
+  <div class="card-header-custom">
+    <i class="bi bi-credit-card-2-front-fill" style="color:var(--warn)"></i>
+    EMI &amp; Fixed Expense Tracker
+    <div class="ms-auto d-flex align-items-center gap-3">
+      <div class="btn-group btn-group-sm" role="group" aria-label="View toggle">
+        <button type="button" class="btn btn-outline-secondary py-1 px-2" id="viewCardsBtn" onclick="toggleEmiView('cards')" title="Card View">
+          <i class="bi bi-grid-fill"></i>
+        </button>
+        <button type="button" class="btn btn-outline-secondary py-1 px-2" id="viewListBtn" onclick="toggleEmiView('list')" title="List View">
+          <i class="bi bi-list-task"></i>
+        </button>
+      </div>
+      <span style="font-size:.78rem;color:var(--text-muted);">
+        {{ emis|length }} tracked · Sorted by remaining
+      </span>
+    </div>
+  </div>
+  <div class="card-body p-3">
+    {% if emis %}
+    <!-- Card View Container -->
+    <div id="emiCardsView" class="row g-3">
+      {% for emi in emis %}
+      {% set st = emi.status %}
+      <div class="col-md-6 col-lg-4">
+        <div class="chart-card" style="border:1px solid {{ 'var(--accent)' if st.is_active else 'var(--border)' }};
+             opacity:{{ '1' if st.is_active else '0.6' }};">
+          <div class="d-flex align-items-start justify-content-between mb-2">
+            <div>
+              <div class="fw-bold" style="font-size:.92rem;color:var(--text-primary);">{{ emi.name }}</div>
+              <div style="font-size:.75rem;color:var(--text-muted);">
+                {% if st.type == 'emi' %}
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][emi.start_month-1] }}
+                  {{ emi.start_year }}
+                  →
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][st.end_month-1] }}
+                  {{ st.end_year }}
+                {% else %}
+                  Starts {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][emi.start_month-1] }} {{ emi.start_year }}
+                  · {{ st.frequency | replace('_', ' ') | capitalize }}
+                {% endif %}
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              {% if st.is_active %}
+              <span class="badge" style="background:var(--accent);color:#fff;font-size:.68rem;">
+                {{ 'Active' if st.type == 'emi' else 'Ongoing' }}
+              </span>
+              {% else %}
+              <span class="badge" style="background:var(--text-faint);color:#fff;font-size:.68rem;">Completed</span>
+              {% endif %}
+              <div class="d-flex align-items-center gap-1">
+                <a href="{{ url_for('edit_emi', eid=emi.id) }}" class="btn btn-sm p-0" style="color:var(--brand);" title="Edit">
+                  <i class="bi bi-pencil-square"></i>
+                </a>
+                <form method="POST" action="{{ url_for('delete_emi', eid=emi.id) }}"
+                      onsubmit="return confirm('Delete this expense? This cannot be undone.')">
+                  <button class="btn btn-sm p-0" style="color:var(--danger);" title="Delete">
+                    <i class="bi bi-trash3"></i>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- Amount + progress -->
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span style="font-size:.8rem;color:var(--text-muted);">
+              {% if st.type == 'emi' %}
+                {{ st.paid }} / {{ st.total }} paid
+              {% else %}
+                Due on {{ emi.day_of_month }}th
+              {% endif %}
+            </span>
+            <span class="fw-bold" style="font-size:.95rem;color:{{ 'var(--warn)' if st.is_active else 'var(--text-faint)' }};">
+              {{ format_inr(emi.amount) }}
+            </span>
+          </div>
+
+          {% if st.type == 'emi' %}
+          <div class="progress mb-2" style="height:8px;border-radius:99px;background:var(--border);">
+            <div class="progress-bar" style="width:{{ st.progress_pct }}%;
+                 background:{{ 'var(--accent)' if st.progress_pct < 100 else 'var(--text-faint)' }};
+                 border-radius:99px;"></div>
+          </div>
+          <div class="d-flex justify-content-between" style="font-size:.72rem;color:var(--text-muted);">
+            <span>{{ st.progress_pct }}% paid  ·  {{ format_inr(emi.amount * st.paid) }} total</span>
+            {% if st.is_active %}
+            <span style="color:var(--warn);">{{ st.remaining }} left</span>
+            {% else %}
+            <span style="color:var(--accent);">Done ✓</span>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="mt-2 p-2 rounded" style="background:var(--surface-2); border:1px dashed var(--border);">
+             <div style="font-size:.72rem;color:var(--text-muted);">
+                <i class="bi bi-info-circle me-1"></i>
+                Recurring {{ st.frequency | replace('_', ' ') }} expense.
+             </div>
+          </div>
+          {% endif %}
+
+          {% if st.is_active and st.type == 'emi' %}
+          <div class="mt-2 pt-2" style="border-top:1px solid var(--border);font-size:.76rem;color:var(--text-muted);">
+            <i class="bi bi-calendar-check me-1"></i>
+            Ends
+            {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][st.end_month-1] }}
+            {{ st.end_year }}
+            — frees up <span class="fw-semibold" style="color:var(--accent);">{{ format_inr(emi.amount) }}/mo</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- List View Container (Hidden by default) -->
+    <div id="emiListView" class="d-none">
+      <div class="table-responsive">
+        <table class="table table-hover expense-table mb-0" style="font-size:.85rem;">
+          <thead>
+            <tr>
+              <th class="ps-2">Expense Name</th>
+              <th>Period / Frequency</th>
+              <th>Progress / Info</th>
+              <th class="text-center">Remaining</th>
+              <th class="text-end">Amount</th>
+              <th class="text-end pe-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for emi in emis %}
+            {% set st = emi.status %}
+            <tr style="opacity:{{ '1' if st.is_active else '0.5' }};">
+              <td class="ps-2">
+                <div class="fw-bold text-primary" style="font-size:.9rem;">{{ emi.name }}</div>
+                <div style="font-size:.7rem;color:var(--text-muted);">{{ emi.category }} · {{ emi.payment_method }}</div>
+              </td>
+              <td style="font-size:.75rem;white-space:nowrap;">
+                {% if st.type == 'emi' %}
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][emi.start_month-1] }} {{ emi.start_year }}<br>
+                  <i class="bi bi-arrow-right text-faint"></i> 
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][st.end_month-1] }} {{ st.end_year }}
+                {% else %}
+                  {{ st.frequency | replace('_', ' ') | capitalize }}<br>
+                  <span class="text-muted">Due on {{ emi.day_of_month }}th</span>
+                {% endif %}
+              </td>
+              <td style="min-width:140px;">
+                {% if st.type == 'emi' %}
+                  <div class="d-flex justify-content-between mb-1" style="font-size:.7rem;">
+                    <span>{{ st.paid }}/{{ st.total }} paid</span>
+                    <span>{{ st.progress_pct }}%</span>
+                  </div>
+                  <div class="progress" style="height:6px;border-radius:10px;background:var(--border);">
+                    <div class="progress-bar" style="width:{{ st.progress_pct }}%; background:{{ 'var(--accent)' if st.is_active else 'var(--text-faint)' }};"></div>
+                  </div>
+                {% else %}
+                  <span class="badge" style="background:var(--accent-light); color:var(--accent); font-size:.65rem; border:1px solid var(--accent);">Ongoing Recurring</span>
+                {% endif %}
+              </td>
+              <td class="text-center fw-bold">
+                {% if st.type == 'emi' %}
+                  {% if st.is_active %}
+                  <span class="text-warn">{{ st.remaining }} mo</span>
+                  {% else %}
+                  <span class="text-accent">Done</span>
+                  {% endif %}
+                {% else %}
+                  <span class="text-accent">Ongoing</span>
+                {% endif %}
+              </td>
+              <td class="text-end fw-bold">{{ format_inr(emi.amount) }}</td>
+              <td class="text-end pe-2">
+                <div class="d-flex justify-content-end gap-2">
+                  <a href="{{ url_for('edit_emi', eid=emi.id) }}" class="btn btn-sm p-0" style="color:var(--brand);" title="Edit">
+                    <i class="bi bi-pencil-square" style="font-size: 1rem;"></i>
+                  </a>
+                  <form method="POST" action="{{ url_for('delete_emi', eid=emi.id) }}" onsubmit="return confirm('Delete this expense?')">
+                    <button class="btn btn-sm p-0" style="color:var(--danger);" title="Delete">
+                      <i class="bi bi-trash3" style="font-size: 1rem;"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Total active EMI footer -->
+    {% set active_count = emis | selectattr('status.is_active') | list | length %}
+    {% if active_count > 0 %}
+    <div class="mt-3 p-3 d-flex align-items-center justify-content-between"
+         style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;">
+      <div style="font-size:.85rem;font-weight:600;color:var(--text-secondary);">
+        <i class="bi bi-lock-fill me-2" style="color:var(--warn)"></i>
+        {{ active_count }} active EMI{{ 's' if active_count != 1 }} · Total committed / month
+      </div>
+      <div style="font-size:1.1rem;font-weight:800;color:var(--warn);">{{ format_inr(active_emi_total) }}</div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center py-4" style="color:var(--text-muted);">
+      <i class="bi bi-credit-card" style="font-size:2rem;"></i>
+      <p class="mt-2 mb-0">No EMIs added yet. Use the action button above to start tracking.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Salary & Extra Income Lists ────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <!-- Salary History -->
+  <div class="col-md-5">
+    <div class="card h-100">
+      <div class="card-header-custom">
+        <i class="bi bi-briefcase-fill" style="color:var(--accent)"></i>
+        Salary History
+      </div>
+      <div class="card-body p-3">
+        {% if salary > 0 %}
+        <div class="mb-3 p-3" style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;">
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <span style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);">Current Salary</span>
+            <span class="badge" style="background:var(--accent);color:#fff;font-size:.65rem;">Active</span>
+          </div>
+          <div style="font-size:1.4rem;font-weight:800;color:var(--accent);">{{ format_inr(salary) }}<span style="font-size:.8rem;font-weight:500;color:var(--text-muted);"> /month</span></div>
+          {% if salary_history %}
+          <div style="font-size:.72rem;color:var(--text-muted);margin-top:.25rem;">
+            <i class="bi bi-calendar3 me-1"></i>Effective from {{ salary_history[0].effective_from }}
+          </div>
+          {% endif %}
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span style="font-size:.78rem;color:var(--text-muted);">Extra income ({{ billing_label }})</span>
+          <span class="fw-bold" style="font-size:.85rem;color:var(--brand);">{{ format_inr(extra_this_cycle) }}</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-3" style="border-top:1px solid var(--border);padding-top:.6rem;margin-top:.4rem;">
+          <span style="font-size:.82rem;font-weight:700;color:var(--text-secondary);">Total this cycle</span>
+          <span style="font-size:.95rem;font-weight:800;color:var(--text-primary);">{{ format_inr(salary + extra_this_cycle) }}</span>
+        </div>
+        {% endif %}
+
+        {% if salary_history and salary_history|length > 0 %}
+        <div style="max-height:250px;overflow-y:auto;">
+          {% for h in salary_history %}
+          <div class="d-flex justify-content-between align-items-center py-2"
+               style="border-bottom:1px solid var(--border);opacity:{{ '1' if loop.first else '0.6' }};">
+            <div>
+              <div class="fw-bold" style="font-size:.82rem;color:var(--text-primary);">{{ format_inr(h.amount) }} / mo</div>
+              <div style="font-size:.7rem;color:var(--text-muted);">
+                <i class="bi bi-calendar3 me-1"></i>From {{ h.effective_from }}
+              </div>
+            </div>
+            {% if loop.first %}
+            <span class="badge" style="background:var(--accent);color:#fff;font-size:.62rem;">Current</span>
+            {% else %}
+            <span style="font-size:.68rem;color:var(--text-faint);background:var(--surface-2);padding:.15rem .4rem;border-radius:4px;">
+              <i class="bi bi-lock-fill me-1"></i>Locked
+            </span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-4 text-muted" style="font-size:.85rem;">
+          <i class="bi bi-briefcase mb-2" style="font-size:1.5rem;"></i>
+          <p>No salary record found.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Extra Income List -->
+  <div class="col-md-7">
+    <div class="card h-100">
+      <div class="card-header-custom">
+        <i class="bi bi-plus-circle-fill" style="color:var(--brand)"></i>
+        Extra Income List
+        <span class="ms-auto" style="font-size:.75rem;color:var(--text-muted);">Last 20 entries</span>
+      </div>
+      <div class="card-body p-3">
+        {% if extra_income %}
+        <div style="max-height:360px;overflow-y:auto;">
+          <table class="table expense-table mb-0" style="font-size:.82rem;">
+            <thead>
+              <tr>
+                <th class="ps-2">Date / Schedule</th>
+                <th>Description</th>
+                <th class="text-end">Amount</th>
+                <th class="text-end pe-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for ei in extra_income %}
+            {% set is_recurring = ei.get('type', 'one-time') == 'recurring' %}
+            {% set freq_labels = {'monthly': 'Monthly', 'quarterly': 'Quarterly',
+                                   'half_yearly': 'Every 6mo', 'yearly': 'Yearly'} %}
+            <tr>
+              <td class="ps-2" style="color:var(--text-muted);white-space:nowrap;">
+                {% if is_recurring %}
+                  <span class="badge" style="background:var(--brand-light);color:var(--brand);font-size:.65rem;font-weight:700;">
+                    <i class="bi bi-arrow-repeat me-1"></i>{{ freq_labels.get(ei.get('frequency','monthly'), 'Recurring') }}
+                  </span>
+                  <div style="font-size:.7rem;color:var(--text-muted);margin-top:1px;">
+                    From {{ ei.get('start_date', '') }}
+                    {% if ei.get('end_date') %} → {{ ei.end_date }}{% else %} · ongoing{% endif %}
+                  </div>
+                {% else %}
+                  {{ ei.date }}
+                {% endif %}
+              </td>
+              <td class="fw-semibold">{{ ei.description }}</td>
+              <td class="text-end fw-bold" style="color:var(--accent);">{{ format_inr(ei.amount) }}</td>
+              <td class="text-end pe-2">
+                <form method="POST" action="{{ url_for('delete_extra_income', eid=ei.id) }}"
+                      onsubmit="return confirm('Delete this entry?')">
+                  <button class="btn btn-sm p-0" style="color:var(--danger);">
+                    <i class="bi bi-trash3"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5" style="color:var(--text-muted);font-size:.85rem;">
+          <i class="bi bi-inbox" style="font-size:2rem;"></i>
+          <p class="mt-2 mb-0">No extra income entries yet.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Charts ─────────────────────────────────────────────────────────────── -->
+<div class="row g-3">
+  <!-- 12-month savings trend -->
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-graph-up" style="color:var(--accent)"></i>
+        12-Month Savings Trend
+        <span class="ms-auto" style="font-size:.75rem;color:var(--text-muted);">Per billing cycle</span>
+      </div>
+      <div class="card-body p-3">
+        <div style="position:relative;height:260px;">
+          <canvas id="trendChart"></canvas>
+        </div>
+        <div class="d-flex gap-3 justify-content-center mt-2">
+          <span style="font-size:.75rem;color:var(--text-muted);">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0E9F6E;margin-right:4px;"></span>Savings
+          </span>
+          <span style="font-size:.75rem;color:var(--text-muted);">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#1A56DB;margin-right:4px;"></span>Spending
+          </span>
+          <span style="font-size:.75rem;color:var(--text-muted);">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#E3A008;margin-right:4px;"></span>Fixed EMIs
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Future savings projection -->
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-rocket-takeoff-fill" style="color:var(--brand)"></i>
+        Future Savings Projection
+        <span class="ms-auto" style="font-size:.75rem;color:var(--text-muted);">Salary minus active EMIs</span>
+      </div>
+      <div class="card-body p-3">
+        <div style="position:relative;height:260px;">
+          <canvas id="futureChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODALS
+════════════════════════════════════════════════════════ -->
+
+<!-- Salary Modal -->
+<div class="modal fade" id="salaryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold">Update Monthly Salary</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="action" value="set_salary">
+          <div class="mb-3">
+            <label class="form-label">New Salary Amount (₹)</label>
+            <div class="input-group">
+              <span class="input-group-text">₹</span>
+              <input type="number" name="salary" class="form-control" step="1" min="0"
+                     placeholder="e.g. 90000" required>
+            </div>
+            <div class="form-text mt-1" style="font-size:.7rem;">Your current salary is {{ format_inr(salary) }}</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Effective From</label>
+            <input type="date" name="effective_from" class="form-control" required value="{{ today }}">
+          </div>
+          <div class="p-3 bg-light rounded" style="font-size:.75rem;color:var(--text-muted);border:1px solid var(--border);">
+            <i class="bi bi-lock-fill me-1"></i>Past salary entries are locked — historical calculations stay accurate.
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-brand btn-sm">Save Revision</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Extra Income Modal -->
+<div class="modal fade" id="extraIncomeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="POST">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold">Add Extra Income</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="action" value="add_extra">
+
+          <!-- Type toggle -->
+          <div class="mb-3">
+            <label class="form-label d-block">Income Type</label>
+            <div class="btn-group w-100" role="group">
+              <input type="radio" class="btn-check" name="ei_type" id="ei_onetime" value="one-time"
+                     checked onchange="toggleEiType()">
+              <label class="btn btn-outline-secondary" for="ei_onetime">
+                <i class="bi bi-calendar-event me-1"></i> One-time
+              </label>
+              <input type="radio" class="btn-check" name="ei_type" id="ei_recurring" value="recurring"
+                     onchange="toggleEiType()">
+              <label class="btn btn-outline-secondary" for="ei_recurring">
+                <i class="bi bi-arrow-repeat me-1"></i> Recurring
+              </label>
+            </div>
+          </div>
+
+          <!-- Amount -->
+          <div class="mb-3">
+            <label class="form-label">Amount ({{ currency_symbol }})</label>
+            <div class="input-group">
+              <span class="input-group-text">{{ currency_symbol }}</span>
+              <input type="number" name="amount" class="form-control" step="0.01" min="0.01"
+                     placeholder="5000" required>
+            </div>
+          </div>
+
+          <!-- Description -->
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <input type="text" name="description" class="form-control"
+                   placeholder="Freelance, Bonus, Rental income…" maxlength="80">
+          </div>
+
+          <!-- One-time fields -->
+          <div id="eiOnetimeFields">
+            <div class="mb-3">
+              <label class="form-label">Date</label>
+              <input type="date" name="date" class="form-control" value="{{ today }}">
+            </div>
+          </div>
+
+          <!-- Recurring fields -->
+          <div id="eiRecurringFields" style="display:none;">
+            <div class="row g-3 mb-3">
+              <div class="col-sm-6">
+                <label class="form-label">Frequency</label>
+                <select name="frequency" class="form-select">
+                  <option value="monthly">Every Month</option>
+                  <option value="quarterly">Every 3 Months</option>
+                  <option value="half_yearly">Every 6 Months</option>
+                  <option value="yearly">Every Year</option>
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label">Start Date</label>
+                <input type="date" name="start_date" class="form-control" value="{{ today }}">
+              </div>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">End Date
+                <small class="text-muted fw-normal">(optional — leave blank for ongoing)</small>
+              </label>
+              <input type="date" name="end_date" class="form-control">
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-brand btn-sm">Add Income</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleEiType() {
+  const isRecurring = document.getElementById('ei_recurring').checked;
+  document.getElementById('eiOnetimeFields').style.display  = isRecurring ? 'none'  : 'block';
+  document.getElementById('eiRecurringFields').style.display = isRecurring ? 'block' : 'none';
+}
+// Reset to one-time when modal opens
+document.getElementById('extraIncomeModal').addEventListener('show.bs.modal', () => {
+  document.getElementById('ei_onetime').checked = true;
+  toggleEiType();
+});
+</script>
+
+<!-- EMI Modal -->
+<div class="modal fade" id="emiModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <form method="POST">
+        <div class="modal-header border-0">
+          <h5 class="modal-title fw-bold">Add New EMI / Fixed Expense</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="action" value="add_emi">
+          <div class="row g-3">
+            <div class="col-md-12 mb-2">
+              <label class="form-label d-block">Expense Type</label>
+              <div class="btn-group w-100" role="group">
+                <input type="radio" class="btn-check" name="type" id="type_emi" value="emi" checked onchange="toggleEmiFields('add')">
+                <label class="btn btn-outline-secondary" for="type_emi">
+                  <i class="bi bi-clock-history me-1"></i> EMI (Fixed Duration)
+                </label>
+                <input type="radio" class="btn-check" name="type" id="type_fixed" value="fixed" onchange="toggleEmiFields('add')">
+                <label class="btn btn-outline-secondary" for="type_fixed">
+                  <i class="bi bi-repeat me-1"></i> Fixed Expense (Ongoing)
+                </label>
+              </div>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">Expense Name</label>
+              <input type="text" name="name" class="form-control" placeholder="Car Loan, Broadband Bill…" maxlength="60" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Amount (₹)</label>
+              <div class="input-group">
+                <span class="input-group-text">₹</span>
+                <input type="number" name="amount" class="form-control" step="0.01" min="1" placeholder="5000" required>
+              </div>
+            </div>
+
+            <!-- EMI Only Fields -->
+            <div class="col-md-4 emi-only-add">
+              <label class="form-label">Total Months</label>
+              <input type="number" name="total_months" class="form-control" step="1" min="1" max="360" placeholder="24">
+            </div>
+
+            <!-- Fixed Only Fields -->
+            <div class="col-md-4 fixed-only-add d-none">
+              <label class="form-label">Frequency</label>
+              <select name="frequency" class="form-select">
+                <option value="monthly">Monthly</option>
+                <option value="quarterly">Quarterly (3 months)</option>
+                <option value="every_4_months">Every 4 Months</option>
+                <option value="half_yearly">Half Yearly (6 months)</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <div class="col-md-4 fixed-only-add d-none">
+              <label class="form-label">Day of Month</label>
+              <input type="number" name="day_of_month" class="form-control" min="1" max="31" value="21">
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Start Month</label>
+              <select name="start_month" class="form-select">
+                {% for m in range(1,13) %}
+                <option value="{{ m }}" {{ 'selected' if m == today_month }}>
+                  {{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1] }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Start Year</label>
+              <input type="number" name="start_year" class="form-control" min="2010" max="2100" value="{{ today_year }}">
+            </div>
+            
+            <div class="col-md-6">
+              <label class="form-label">Category</label>
+              <select name="category" class="form-select" id="emiCategorySelect" onchange="toggleNewCategory('add')">
+                {% for cat in categories %}
+                <option value="{{ cat }}" {{ 'selected' if cat == 'EMI / Finance' }}>{{ cat }}</option>
+                {% endfor %}
+                <option value="__new__">+ Add new…</option>
+              </select>
+            </div>
+            <div class="col-md-6 d-none" id="newCategoryRow_add">
+              <label class="form-label">New Category Name</label>
+              <input type="text" name="new_category" class="form-control" placeholder="e.g. Subscriptions, Rent…">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Payment Method</label>
+              <select name="payment_method" class="form-select">
+                {% for pm in pm_list %}
+                <option>{{ pm }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-brand btn-sm">Add Expense</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleEmiFields(mode) {
+    const isEmi = document.getElementById('type_emi').checked;
+    const emiFields = document.querySelectorAll('.emi-only-' + mode);
+    const fixedFields = document.querySelectorAll('.fixed-only-' + mode);
+    
+    if (isEmi) {
+        emiFields.forEach(el => el.classList.remove('d-none'));
+        fixedFields.forEach(el => el.classList.add('d-none'));
+        document.querySelector('[name="total_months"]').required = true;
+    } else {
+        emiFields.forEach(el => el.classList.add('d-none'));
+        fixedFields.forEach(el => el.classList.remove('d-none'));
+        document.querySelector('[name="total_months"]').required = false;
+    }
+}
+
+function toggleNewCategory(mode) {
+    const select = document.getElementById('emiCategorySelect');
+    const row = document.getElementById('newCategoryRow_' + mode);
+    if (select.value === '__new__') {
+        row.classList.remove('d-none');
+    } else {
+        row.classList.add('d-none');
+    }
+}
+</script>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleEmiView(view) {
+  const cards = document.getElementById('emiCardsView');
+  const list = document.getElementById('emiListView');
+  const cardsBtn = document.getElementById('viewCardsBtn');
+  const listBtn = document.getElementById('viewListBtn');
+  
+  if (!cards || !list) return;
+
+  if (view === 'list') {
+    cards.classList.add('d-none');
+    list.classList.remove('d-none');
+    listBtn.classList.add('active');
+    cardsBtn.classList.remove('active');
+  } else {
+    cards.classList.remove('d-none');
+    list.classList.add('d-none');
+    cardsBtn.classList.add('active');
+    listBtn.classList.remove('active');
+  }
+  localStorage.setItem('emi-view', view);
+}
+
+async function loadBudgetCharts() {
+  // Initialize EMI view from localStorage
+  const savedView = localStorage.getItem('emi-view') || 'cards';
+  toggleEmiView(savedView);
+
+  const res  = await fetch('/api/budget-summary');
+  const d    = await res.json();
+
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor  = isDark ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)';
+  const labelColor = isDark ? '#8b949e' : '#475569';
+
+  // ── Savings trend (stacked bar: spent + fixed, + net line) ──
+  const trendCtx = document.getElementById('trendChart').getContext('2d');
+  new Chart(trendCtx, {
+    type: 'bar',
+    data: {
+      labels: d.trend_labels,
+      datasets: [
+        {
+          label: 'Spending',
+          data:  d.trend_spent,
+          backgroundColor: 'rgba(26,86,219,.65)',
+          borderRadius: 3,
+          stack: 'costs',
+        },
+        {
+          label: 'Fixed EMIs',
+          data:  d.trend_fixed,
+          backgroundColor: 'rgba(227,160,8,.65)',
+          borderRadius: 3,
+          stack: 'costs',
+        },
+        {
+          label: 'Savings',
+          data:  d.trend_net,
+          type:  'line',
+          borderColor: '#0E9F6E',
+          backgroundColor: 'rgba(14,159,110,.12)',
+          pointBackgroundColor: '#0E9F6E',
+          pointRadius: 4,
+          borderWidth: 2,
+          fill: true,
+          tension: 0.35,
+          yAxisID: 'y',
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: c => ` ${c.dataset.label}: ${fmtINR(c.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { color: labelColor, font: { size: 10 } }
+        },
+        y: {
+          stacked: false,
+          grid: { color: gridColor },
+          ticks: { color: labelColor, callback: v => `₹${(v/1000).toFixed(0)}k` }
+        }
+      }
+    }
+  });
+
+  // ── Future projection bar ──
+  const futureCtx = document.getElementById('futureChart').getContext('2d');
+  new Chart(futureCtx, {
+    type: 'bar',
+    data: {
+      labels: d.future_labels,
+      datasets: [{
+        label: 'Est. Savings',
+        data:  d.future_savings,
+        backgroundColor: d.future_savings.map(v => v >= 0 ? 'rgba(14,159,110,.75)' : 'rgba(240,82,82,.75)'),
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: c => ` Est. savings: ${fmtINR(c.raw)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: labelColor, font: { size: 10 } }
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: { color: labelColor, callback: v => `₹${(v/1000).toFixed(0)}k` }
+        }
+      }
+    }
+  });
+}
+
+loadBudgetCharts();
+</script>
+{% endblock %}

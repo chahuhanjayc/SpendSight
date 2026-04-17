@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}All Expenses — SpendSight{% endblock %}
+{% block page_title %}All Expenses{% endblock %}
+
+{% block content %}
+
+<!-- ── Filters card ── -->
+<div class="card mb-4">
+  <div class="card-header-custom">
+    <i class="bi bi-funnel-fill" style="color:var(--brand)"></i> Filters
+  </div>
+  <div class="card-body p-3">
+    <form method="GET" action="{{ url_for('view_expenses') }}">
+      <!-- Reset to page 1 whenever any filter is changed via this form -->
+      <input type="hidden" name="page" value="1">
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-2">
+          <label class="form-label">From</label>
+          <input type="date" name="date_from" value="{{ filters.date_from }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label">To</label>
+          <input type="date" name="date_to" value="{{ filters.date_to }}" class="form-control form-control-sm">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label">Category</label>
+          <select name="category" class="form-select form-select-sm">
+            <option value="">All</option>
+            {% for cat in categories %}
+            <option value="{{ cat }}" {{ 'selected' if filters.category == cat }}>{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label">Payment</label>
+          <select name="payment" class="form-select form-select-sm">
+            <option value="">All</option>
+            {% for pm in payment_methods %}
+            <option value="{{ pm }}" {{ 'selected' if filters.payment == pm }}>{{ pm }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-1">
+          <label class="form-label">Per Page</label>
+          <select name="per_page" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="50" {{ 'selected' if filters.per_page == '50' }}>50</option>
+            <option value="100" {{ 'selected' if filters.per_page == '100' }}>100</option>
+            <option value="all" {{ 'selected' if filters.per_page == 'all' }}>All</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Search</label>
+          <input type="text" name="search" value="{{ filters.search }}"
+                 class="form-control form-control-sm" placeholder="Item, category…">
+        </div>
+        <div class="col-md-1 d-flex gap-1">
+          <button type="submit" class="btn btn-brand btn-sm flex-grow-1"><i class="bi bi-search"></i></button>
+          <a href="{{ url_for('view_expenses') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x"></i></a>
+        </div>
+      </div>
+    </form>
+
+    <!-- Export buttons -->
+    <div class="d-flex gap-2 mt-3">
+      <a href="{{ url_for('export_csv') }}" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-filetype-csv me-1"></i> Export CSV
+      </a>
+      <a href="{{ url_for('export_pdf') }}" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-file-pdf me-1"></i> Export PDF
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Results bar -->
+<div class="row g-3 mb-3 px-1">
+  <div class="col-md-6 d-flex align-items-center">
+    <div style="font-size:.88rem;color:var(--text-muted);">
+      <span class="fw-bold" style="color:var(--text-primary);">{{ total_count }}</span> transaction{{ 's' if total_count != 1 }} 
+      {% if filters.date_from or filters.date_to or filters.category or filters.payment or filters.search %}
+      <span class="badge ms-1" style="background:var(--brand);font-size:.7rem;">Filtered</span>
+      {% endif %}
+      <div style="font-size:.87rem; margin-top:4px; color:var(--text-secondary);">
+        <i class="bi bi-calendar-check"></i> Current Period ({{ billing_label }}): 
+        <span class="fw-bold text-success">{{ format_inr(billing_cycle_total) }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 text-md-end">
+    <div class="d-inline-block text-end">
+      <small class="text-muted d-block" style="font-size:.65rem; text-transform:uppercase; letter-spacing:.5px; font-weight:700;">Page Total</small>
+      <span class="fw-bold" style="font-size:1.2rem; color:var(--brand);">{{ format_inr(total) }}</span>
+      {% if total != filtered_total %}
+      <div style="font-size:.7rem; color:var(--text-muted); margin-top:1px;">
+        Total filtered: <span class="fw-semibold">{{ format_inr(filtered_total) }}</span>
+      </div>
+      {% endif %}
+      {% if filters.category and total_count > 0 %}
+      <div class="mt-2">
+        <a href="{{ url_for('edit_bulk_category', date_from=filters.date_from, date_to=filters.date_to, category=filters.category, payment=filters.payment, search=filters.search, per_page=filters.per_page, page=filters.page) }}"
+           class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-collection me-1"></i> Bulk Edit {{ filters.category }}
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card">
+  <div class="card-body p-0">
+    {% if expenses %}
+    <div class="table-responsive">
+      <table class="table table-hover expense-table mb-0">
+        <thead>
+          <tr>
+            <th class="ps-3">Date</th>
+            <th>Category</th>
+            <th>Item</th>
+            <th>Payment</th>
+            <th>Notes</th>
+            <th class="text-end">Amount</th>
+            <th class="pe-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in expenses %}
+          <tr>
+            <td class="ps-3" style="color:var(--text-muted);font-size:.8rem;white-space:nowrap;">{{ e.date }}</td>
+            <td>
+              <span class="cat-badge" style="background:{{ get_category_color(e.category) }};">{{ e.category }}</span>
+            </td>
+            <td>
+              <div class="fw-semibold">{{ e.subcategory }}</div>
+              {% if e.get('quantity') %}
+              <div style="font-size:.72rem;color:var(--text-muted);">{{ e.get('quantity') }} {{ e.get('unit', '') }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <span class="pm-badge {{ 'pm-cash' if e.payment_method == 'Cash' else ('pm-rupee' if e.payment_method == 'Rupee Card' else 'pm-card') }}">
+                {{ e.payment_method }}
+              </span>
+            </td>
+            <td style="font-size:.8rem;color:var(--text-muted);max-width:160px;">
+              <span class="text-truncate d-inline-block" style="max-width:140px;" title="{{ e.get('notes','') }}">
+                {{ e.get('notes','') or '—' }}
+              </span>
+            </td>
+            <td class="text-end fw-bold" style="font-size:.92rem;">₹{{ "%.0f"|format(e.amount) }}</td>
+            <td class="pe-3">
+              <div class="d-flex align-items-center gap-2">
+                <a href="{{ url_for('edit_expense', expense_id=e.id) }}" class="btn btn-sm btn-link p-0" style="color:var(--brand);" title="Edit">
+                  <i class="bi bi-pencil-square"></i>
+                </a>
+                <a href="{{ url_for('edit_bulk_category', date_from=filters.date_from, date_to=filters.date_to, category=e.category, payment=filters.payment, search=filters.search, per_page=filters.per_page, page=filters.page) }}"
+                   class="btn btn-sm btn-link p-0" style="color:var(--text-muted);" title="Bulk edit this category">
+                  <i class="bi bi-collection"></i>
+                </a>
+                <form method="POST" action="{{ url_for('delete_expense', expense_id=e.id) }}"
+                      onsubmit="return confirm('Delete this expense?')">
+                  <button type="submit" class="btn btn-sm btn-link p-0" style="color:var(--danger);" title="Delete">
+                    <i class="bi bi-trash3"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-5" style="color:var(--text-muted);">
+      <i class="bi bi-inbox" style="font-size:2.5rem;"></i>
+      <p class="mt-3 mb-2">No expenses match your filters.</p>
+      <a href="{{ url_for('add_expense') }}" class="btn btn-brand btn-sm">Add Expense</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<nav class="mt-4 mb-2">
+  <ul class="pagination pagination-sm justify-content-center">
+    <!-- Previous Page -->
+    <li class="page-item {{ 'disabled' if current_page <= 1 }}">
+      <a class="page-link" href="{{ url_for('view_expenses', page=current_page-1, date_from=filters.date_from, date_to=filters.date_to, category=filters.category, payment=filters.payment, search=filters.search, per_page=filters.per_page) }}">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+    </li>
+
+    <!-- Page Numbers -->
+    {% set start_page = [1, current_page - 2]|max %}
+    {% set end_page = [total_pages, start_page + 4]|min %}
+    {% set start_page = [1, end_page - 4]|max %}
+
+    {% if start_page > 1 %}
+    <li class="page-item"><a class="page-link" href="{{ url_for('view_expenses', page=1, date_from=filters.date_from, date_to=filters.date_to, category=filters.category, payment=filters.payment, search=filters.search, per_page=filters.per_page) }}">1</a></li>
+    {% if start_page > 2 %}<li class="page-item disabled"><span class="page-link">...</span></li>{% endif %}
+    {% endif %}
+
+    {% for p in range(start_page, end_page + 1) %}
+    <li class="page-item {{ 'active' if p == current_page }}">
+      <a class="page-link" href="{{ url_for('view_expenses', page=p, date_from=filters.date_from, date_to=filters.date_to, category=filters.category, payment=filters.payment, search=filters.search, per_page=filters.per_page) }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+
+    {% if end_page < total_pages %}
+    {% if end_page < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">...</span></li>{% endif %}
+    <li class="page-item"><a class="page-link" href="{{ url_for('view_expenses', page=total_pages, date_from=filters.date_from, date_to=filters.date_to, category=filters.category, payment=filters.payment, search=filters.search, per_page=filters.per_page) }}">{{ total_pages }}</a></li>
+    {% endif %}
+
+    <!-- Next Page -->
+    <li class="page-item {{ 'disabled' if current_page >= total_pages }}">
+      <a class="page-link" href="{{ url_for('view_expenses', page=current_page+1, date_from=filters.date_from, date_to=filters.date_to, category=filters.category, payment=filters.payment, search=filters.search, per_page=filters.per_page) }}">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+    </li>
+  </ul>
+</nav>
+{% endif %}
+
+{% endblock %}

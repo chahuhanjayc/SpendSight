@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - SpendSight{% endblock %}
+
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header-custom justify-content-between">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-people-fill text-brand"></i>
+          User Management
+        </div>
+        <button class="btn btn-brand btn-sm" data-bs-toggle="modal" data-bs-target="#addUserModal">
+          <i class="bi bi-person-plus-fill me-1"></i> Add User
+        </button>
+      </div>
+      <table class="table expense-table mb-0">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Password</th>
+            <th class="text-end pe-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <td class="fw-bold ps-3">{{ user.id }}</td>
+            <td>
+              <span class="badge {% if user.role == 'admin' %}bg-danger-subtle text-danger{% else %}bg-info-subtle text-info{% endif %} px-2 py-1">
+                {{ user.role | capitalize }}
+              </span>
+            </td>
+            <td><code class="text-muted">••••••••</code></td>
+            <td class="text-end pe-3">
+              <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm border-0"
+                        data-bs-toggle="dropdown"
+                        data-bs-boundary="window"
+                        aria-expanded="false">
+                  <i class="bi bi-three-dots-vertical"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow">
+                  <li>
+                    <button class="dropdown-item" onclick="openResetModal('{{ user.id }}')">
+                      <i class="bi bi-key me-2"></i> Reset Password
+                    </button>
+                  </li>
+                  {% if user.id != current_user.id %}
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <form action="{{ url_for('admin_delete_user', uid=user.id) }}" method="POST"
+                          onsubmit="return confirm('Delete user {{ user.id }}? This cannot be undone.')">
+                      <button type="submit" class="dropdown-item text-danger">
+                        <i class="bi bi-trash me-2"></i> Delete User
+                      </button>
+                    </form>
+                  </li>
+                  {% endif %}
+                </ul>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal fade" id="addUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form action="{{ url_for('admin_add_user') }}" method="POST">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-bold">Add New User</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-4">
+          <div class="mb-3">
+            <label class="form-label">Username</label>
+            <input type="text" name="username" class="form-control" required placeholder="Enter username">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Initial Password</label>
+            <input type="password" name="password" id="addPwInput" class="form-control" required
+                   placeholder="Min 8 chars, upper, lower, number, symbol"
+                   oninput="checkStrength(this, 'addPwStrength', 'addPwRules')">
+            <div id="addPwStrength" class="pw-strength-bar mt-2" style="display:none;">
+              <div class="pw-bar-track"><div class="pw-bar-fill"></div></div>
+              <span class="pw-label"></span>
+            </div>
+            <ul id="addPwRules" class="pw-rules mt-2 mb-0"></ul>
+          </div>
+          <div class="mb-0">
+            <label class="form-label">Role</label>
+            <select name="role" class="form-select">
+              <option value="user">User (Standard Access)</option>
+              <option value="admin">Admin (Full Access)</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-brand btn-sm" onclick="return validatePw('addPwInput')">Create User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form id="resetPasswordForm" method="POST">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-bold">Reset Password</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-4">
+          <p class="text-muted small mb-3">Updating password for: <strong id="resetTargetUser"></strong></p>
+          <div class="mb-0">
+            <label class="form-label">New Password</label>
+            <input type="password" name="new_password" id="resetPwInput" class="form-control" required
+                   placeholder="Min 8 chars, upper, lower, number, symbol"
+                   oninput="checkStrength(this, 'resetPwStrength', 'resetPwRules')">
+            <div id="resetPwStrength" class="pw-strength-bar mt-2" style="display:none;">
+              <div class="pw-bar-track"><div class="pw-bar-fill"></div></div>
+              <span class="pw-label"></span>
+            </div>
+            <ul id="resetPwRules" class="pw-rules mt-2 mb-0"></ul>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-brand btn-sm" onclick="return validatePw('resetPwInput')">Update Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .pw-bar-track { height:6px;border-radius:99px;background:var(--border);overflow:hidden; }
+  .pw-bar-fill  { height:100%;border-radius:99px;transition:width .3s,background .3s;width:0%; }
+  .pw-label     { font-size:.74rem;font-weight:700;margin-left:6px; }
+  .pw-strength-bar { display:flex;align-items:center; }
+  .pw-strength-bar .pw-bar-track { flex:1; }
+  .pw-rules { list-style:none;padding:0;margin:0; }
+  .pw-rules li { font-size:.74rem;padding:1px 0;color:var(--text-muted);display:flex;align-items:center;gap:5px; }
+  .pw-rules li.ok  { color:#0E9F6E; }
+  .pw-rules li.ok::before  { content:"✓"; font-weight:700; }
+  .pw-rules li:not(.ok)::before { content:"○"; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const PW_RULES = [
+    { key:'len',    label:'At least 8 characters',        test: p => p.length >= 8 },
+    { key:'upper',  label:'One uppercase letter (A–Z)',    test: p => /[A-Z]/.test(p) },
+    { key:'lower',  label:'One lowercase letter (a–z)',    test: p => /[a-z]/.test(p) },
+    { key:'digit',  label:'One number (0–9)',              test: p => /\d/.test(p) },
+    { key:'symbol', label:'One symbol (!@#$%^&* etc.)',    test: p => /[^A-Za-z0-9]/.test(p) },
+  ];
+
+  function checkStrength(input, barId, rulesId) {
+    const pw   = input.value;
+    const bar  = document.getElementById(barId);
+    const list = document.getElementById(rulesId);
+    if (!pw) { bar.style.display = 'none'; list.innerHTML = ''; return; }
+    bar.style.display = 'flex';
+
+    const passed = PW_RULES.filter(r => r.test(pw)).length;
+    const fill   = bar.querySelector('.pw-bar-fill');
+    const label  = bar.querySelector('.pw-label');
+    const pct    = (passed / PW_RULES.length) * 100;
+    const colors = ['#F05252','#E3A008','#E3A008','#0E9F6E','#0E9F6E'];
+    const labels = ['Very Weak','Weak','Fair','Strong','Very Strong'];
+    fill.style.width      = pct + '%';
+    fill.style.background = colors[passed - 1] || '#F05252';
+    label.textContent     = labels[passed - 1] || '';
+    label.style.color     = colors[passed - 1] || '#F05252';
+
+    list.innerHTML = PW_RULES.map(r =>
+      `<li class="${r.test(pw) ? 'ok' : ''}">${r.label}</li>`
+    ).join('');
+  }
+
+  function validatePw(inputId) {
+    const pw = document.getElementById(inputId).value;
+    const allOk = PW_RULES.every(r => r.test(pw));
+    if (!allOk) {
+      document.getElementById(inputId).focus();
+      return false;
+    }
+    return true;
+  }
+
+  function openResetModal(userId) {
+    const form = document.getElementById('resetPasswordForm');
+    form.action = `/admin/user/reset_password/${userId}`;
+    document.getElementById('resetTargetUser').textContent = userId;
+    // Clear previous state
+    document.getElementById('resetPwInput').value = '';
+    document.getElementById('resetPwStrength').style.display = 'none';
+    document.getElementById('resetPwRules').innerHTML = '';
+    new bootstrap.Modal(document.getElementById('resetPasswordModal')).show();
+  }
+</script>
+{% endblock %}

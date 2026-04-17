@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Edit EMI — SpendSight{% endblock %}
+{% block page_title %}Edit EMI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-lg-8">
+
+<div class="card">
+  <div class="card-header-custom">
+    <i class="bi bi-pencil-square" style="color:var(--brand)"></i>
+    Edit Fixed EMI
+    <a href="{{ url_for('income') }}" class="ms-auto btn btn-sm btn-outline-secondary py-0" style="font-size:.75rem;">Cancel</a>
+  </div>
+  <div class="card-body p-4">
+
+    <form method="POST" action="{{ url_for('edit_emi', eid=emi.id) }}">
+      
+      <div class="row g-3">
+        <!-- Type Selection -->
+        <div class="col-md-12 mb-2">
+          <label class="form-label d-block">Expense Type</label>
+          <div class="btn-group w-100" role="group">
+            <input type="radio" class="btn-check" name="type" id="type_emi" value="emi" 
+                   {% if emi.get('type', 'emi') == 'emi' %}checked{% endif %} onchange="toggleEmiFields('edit')">
+            <label class="btn btn-outline-secondary" for="type_emi">
+              <i class="bi bi-clock-history me-1"></i> EMI (Fixed Duration)
+            </label>
+            <input type="radio" class="btn-check" name="type" id="type_fixed" value="fixed"
+                   {% if emi.get('type') == 'fixed' %}checked{% endif %} onchange="toggleEmiFields('edit')">
+            <label class="btn btn-outline-secondary" for="type_fixed">
+              <i class="bi bi-repeat me-1"></i> Fixed Expense (Ongoing)
+            </label>
+          </div>
+        </div>
+
+        <!-- Name -->
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Expense Name <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="name" class="form-control" value="{{ emi.name }}" required autofocus>
+          <small class="text-muted">e.g. Home Loan, Broadband Bill</small>
+        </div>
+
+        <!-- Amount -->
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Amount ({{ currency_symbol }}) <span style="color:var(--danger)">*</span></label>
+          <div class="amount-wrap">
+            <span class="rupee-sym">{{ currency_symbol }}</span>
+            <input type="number" step="0.01" name="amount" class="form-control" value="{{ emi.amount }}" required>
+          </div>
+        </div>
+
+        <!-- EMI Only Fields -->
+        <div class="col-md-4 mb-3 emi-only-edit {% if emi.get('type', 'emi') != 'emi' %}d-none{% endif %}">
+          <label class="form-label">Total Months <span style="color:var(--danger)">*</span></label>
+          <input type="number" name="total_months" class="form-control" value="{{ emi.total_months }}" 
+                 {% if emi.get('type', 'emi') == 'emi' %}required{% endif %}>
+        </div>
+
+        <!-- Fixed Only Fields -->
+        <div class="col-md-4 mb-3 fixed-only-edit {% if emi.get('type') != 'fixed' %}d-none{% endif %}">
+          <label class="form-label">Frequency <span style="color:var(--danger)">*</span></label>
+          <select name="frequency" class="form-select">
+            <option value="monthly" {% if emi.get('frequency') == 'monthly' %}selected{% endif %}>Monthly</option>
+            <option value="quarterly" {% if emi.get('frequency') == 'quarterly' %}selected{% endif %}>Quarterly (3 months)</option>
+            <option value="every_4_months" {% if emi.get('frequency') == 'every_4_months' %}selected{% endif %}>Every 4 Months</option>
+            <option value="half_yearly" {% if emi.get('frequency') == 'half_yearly' %}selected{% endif %}>Half Yearly (6 months)</option>
+            <option value="yearly" {% if emi.get('frequency') == 'yearly' %}selected{% endif %}>Yearly</option>
+          </select>
+        </div>
+        <div class="col-md-4 mb-3 fixed-only-edit {% if emi.get('type') != 'fixed' %}d-none{% endif %}">
+          <label class="form-label">Day of Month <span style="color:var(--danger)">*</span></label>
+          <input type="number" name="day_of_month" class="form-control" min="1" max="31" 
+                 value="{{ emi.get('day_of_month', 21) }}">
+        </div>
+
+        <!-- Common Date Fields -->
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Start Year <span style="color:var(--danger)">*</span></label>
+          <select name="start_year" class="form-select">
+            {% set ty = today_str()[:4]|int %}
+            {% for y in range(ty-5, ty+11) %}
+            <option value="{{ y }}" {% if y == emi.start_year %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Start Month <span style="color:var(--danger)">*</span></label>
+          <select name="start_month" class="form-select">
+            {% for m in range(1, 13) %}
+            <option value="{{ m }}" {% if m == emi.start_month %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Category -->
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Category</label>
+          <select name="category" class="form-select" id="emiCategorySelect" onchange="toggleNewCategory('edit')">
+            {% for cat in categories %}
+            <option value="{{ cat }}" {% if cat == emi.category %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+            <option value="__new__">+ Add new…</option>
+          </select>
+        </div>
+
+        <div class="col-md-6 mb-3 d-none" id="newCategoryRow_edit">
+          <label class="form-label">New Category Name</label>
+          <input type="text" name="new_category" class="form-control" placeholder="e.g. Subscriptions, Rent…">
+        </div>
+
+        <!-- Payment Method -->
+        <div class="col-md-6 mb-4">
+          <label class="form-label">Payment Method</label>
+          <select name="payment_method" class="form-select">
+            {% for pm in pm_list %}
+            <option value="{{ pm }}" {% if pm == emi.payment_method %}selected{% endif %}>{{ pm }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-brand flex-grow-1">
+          <i class="bi bi-check-lg me-1"></i> Update Expense
+        </button>
+        <a href="{{ url_for('income') }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<script>
+function toggleEmiFields(mode) {
+    const isEmi = document.getElementById('type_emi').checked;
+    const emiFields = document.querySelectorAll('.emi-only-' + mode);
+    const fixedFields = document.querySelectorAll('.fixed-only-' + mode);
+    
+    if (isEmi) {
+        emiFields.forEach(el => el.classList.remove('d-none'));
+        fixedFields.forEach(el => el.classList.add('d-none'));
+        document.querySelector('[name="total_months"]').required = true;
+    } else {
+        emiFields.forEach(el => el.classList.add('d-none'));
+        fixedFields.forEach(el => el.classList.remove('d-none'));
+        document.querySelector('[name="total_months"]').required = false;
+    }
+}
+
+function toggleNewCategory(mode) {
+    const select = document.getElementById('emiCategorySelect');
+    const row = document.getElementById('newCategoryRow_' + mode);
+    if (select.value === '__new__') {
+        row.classList.remove('d-none');
+    } else {
+        row.classList.add('d-none');
+    }
+}
+</script>
+</div>
+</div>
+{% endblock %}
