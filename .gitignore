@@ -5,6 +5,8 @@ user_data/
 .secret_key
 cloud_tokens.json
 cloud_creds.json
+spendsight.db
+spendsight.db-*
 
 # Python
 __pycache__/
@@ -25,6 +27,11 @@ env/
 # Environment variables
 .env
 .env.local
+
+# Local deployment/archive artifacts
+/spendbot.zip
+/tmp_start/
+/tmp_start1/
 
 # IDE
 .vscode/

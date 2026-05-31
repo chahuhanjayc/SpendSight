@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Rules - SpendSight{% endblock %}
+{% block page_title %}Rules{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-magic" style="color:var(--brand);"></i>
+        New Rule
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('rules') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label">Rule Name</label>
+            <input class="form-control" name="name" placeholder="Netflix subscription">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Match Text</label>
+            <input class="form-control" name="match_text" placeholder="netflix, swiggy, rent">
+            <div class="form-text">Matches notes, category, subcategory, or payment method.</div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Min Amount</label>
+              <input class="form-control" name="min_amount" type="number" step="0.01" min="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Max Amount</label>
+              <input class="form-control" name="max_amount" type="number" step="0.01" min="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Set Category</label>
+            <input class="form-control" name="set_category" list="categoryOptions" placeholder="Entertainment">
+            <datalist id="categoryOptions">
+              {% for cat in categories.keys() %}
+              <option value="{{ cat }}"></option>
+              {% endfor %}
+            </datalist>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Set Subcategory</label>
+            <input class="form-control" name="set_subcategory" placeholder="Netflix">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Set Payment Method</label>
+            <input class="form-control" name="set_payment_method" list="pmOptions" placeholder="Card 1">
+            <datalist id="pmOptions">
+              {% for pm in payment_methods %}
+              <option value="{{ pm }}"></option>
+              {% endfor %}
+            </datalist>
+          </div>
+          <button class="btn btn-brand w-100">Create Rule</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-list-check" style="color:var(--accent);"></i>
+        Active Rules
+        <span class="ms-auto" style="font-size:.8rem;color:var(--text-muted);font-weight:600;">{{ rules|length }} rules</span>
+      </div>
+      <div class="card-body p-4">
+        {% if rules %}
+        <div class="d-grid gap-3">
+          {% for rule in rules %}
+          <div class="p-3 rounded" style="border:1px solid var(--border);background:var(--surface-2);">
+            <div class="d-flex justify-content-between gap-3">
+              <div>
+                <div class="fw-bold">{{ rule.name }}</div>
+                <div style="font-size:.78rem;color:var(--text-muted);">
+                  {% if rule.match_text %}contains "{{ rule.match_text }}"{% endif %}
+                  {% if rule.min_amount != "" %} · min {{ format_inr(rule.min_amount) }}{% endif %}
+                  {% if rule.max_amount != "" %} · max {{ format_inr(rule.max_amount) }}{% endif %}
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-1">
+                  {% if rule.set_category %}<span class="badge bg-primary">{{ rule.set_category }}</span>{% endif %}
+                  {% if rule.set_subcategory %}<span class="badge bg-success">{{ rule.set_subcategory }}</span>{% endif %}
+                  {% if rule.set_payment_method %}<span class="badge bg-secondary">{{ rule.set_payment_method }}</span>{% endif %}
+                </div>
+              </div>
+              <form method="POST" action="{{ url_for('delete_rule', rule_id=rule.id) }}" onsubmit="return confirm('Delete this rule?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash3"></i></button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-5" style="color:var(--text-muted);">
+          Rules will automatically clean up new expenses after OCR, manual add, or future imports.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

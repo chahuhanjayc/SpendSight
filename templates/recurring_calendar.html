@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Recurring Calendar - SpendSight{% endblock %}
+{% block page_title %}Recurring Calendar{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-4">
+  <form method="GET" action="{{ url_for('recurring_calendar') }}" class="d-flex gap-2 align-items-center">
+    <input class="form-control" type="month" name="month" value="{{ selected_month }}">
+    <button class="btn btn-outline-primary"><i class="bi bi-calendar3"></i></button>
+  </form>
+  <div class="d-flex flex-wrap gap-2">
+    {% if calendar.overdue_count %}
+    <span class="badge bg-danger">{{ calendar.overdue_count }} overdue</span>
+    {% endif %}
+    {% if calendar.due_soon_count %}
+    <span class="badge bg-warning text-dark">{{ calendar.due_soon_count }} due soon</span>
+    {% endif %}
+    <span class="badge bg-primary">{{ calendar.item_count }} recurring items</span>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(calendar.income) }}</div><div class="l">Expected Income</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(calendar.total_due) }}</div><div class="l">Total Due</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(calendar.unpaid_total) }}</div><div class="l">Unpaid</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(calendar.cash_after_unpaid) }}</div><div class="l">Cash After Unpaid</div></div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-calendar2-week" style="color:var(--brand);"></i>
+        {{ selected_month }} Calendar
+      </div>
+      <div class="card-body p-4">
+        {% if calendar["items"] %}
+          <div class="d-grid gap-3">
+            {% for day in calendar.days %}
+              {% if day["items"] %}
+              <div class="p-3 rounded" style="border:1px solid var(--border);background:var(--surface-2);">
+                <div class="d-flex align-items-center mb-2">
+                  <div class="fw-bold" style="color:var(--brand);">Day {{ day.day }}</div>
+                  <div class="ms-auto" style="font-size:.8rem;color:var(--text-muted);">{{ day["items"]|length }} item{{ "s" if day["items"]|length != 1 }}</div>
+                </div>
+                <div class="d-grid gap-2">
+                  {% for item in day["items"] %}
+                  <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:var(--surface);border:1px solid var(--border);">
+                    <span class="badge {% if item.status == 'paid' %}bg-success{% elif item.status == 'overdue' %}bg-danger{% elif item.status == 'due_soon' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                      {{ item.status.replace("_", " ")|title }}
+                    </span>
+                    <div>
+                      <div class="fw-bold">{{ item.name }}</div>
+                      <div style="font-size:.75rem;color:var(--text-muted);">{{ item.source|title }}{% if item.category %} | {{ item.category }}{% endif %}</div>
+                    </div>
+                    <div class="ms-auto fw-bold">{{ format_inr(item.amount) }}</div>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center py-5" style="color:var(--text-muted);">No recurring items found for this month.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-list-check" style="color:var(--accent);"></i>
+        Upcoming Queue
+        <span class="ms-auto" style="font-size:.8rem;color:var(--text-muted);font-weight:600;">Next 7 days {{ format_inr(calendar.next_7_days_total) }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if calendar["items"] %}
+          <div class="list-group list-group-flush">
+            {% for item in calendar["items"] %}
+            <div class="list-group-item d-flex align-items-center gap-2">
+              <span class="badge {% if item.source == 'subscription' %}bg-primary{% elif item.source == 'goal' %}bg-success{% elif item.source == 'emi' %}bg-danger{% else %}bg-secondary{% endif %}">
+                {{ item.source|title }}
+              </span>
+              <div>
+                <div class="fw-bold">{{ item.name }}</div>
+                <div style="font-size:.75rem;color:var(--text-muted);">{{ item.due_on }} | {{ item.payment_method or item.category }}</div>
+              </div>
+              <div class="ms-auto fw-bold">{{ format_inr(item.amount) }}</div>
+            </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="p-4 text-center" style="color:var(--text-muted);">No upcoming recurring bills.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Accounts &amp; Net Worth - SpendSight{% endblock %}
+{% block page_title %}Accounts &amp; Net Worth{% endblock %}
+
+{% block extra_head %}
+<style>
+  .anw-band { margin-bottom: 1.25rem; }
+  .anw-metric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    min-height: 112px;
+  }
+  .anw-label {
+    color: var(--text-muted);
+    font-size: .76rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .anw-value {
+    color: var(--text-primary);
+    font-size: 1.45rem;
+    font-weight: 800;
+    margin-top: .35rem;
+  }
+  .anw-subtle { color: var(--text-muted); font-size: .78rem; }
+  .anw-account-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 130px 140px 120px;
+    gap: 1rem;
+    align-items: center;
+    padding: .85rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .anw-account-row:last-child { border-bottom: 0; }
+  .anw-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: .74rem;
+    padding: .2rem .55rem;
+  }
+  @media (max-width: 768px) {
+    .anw-account-row { grid-template-columns: 1fr; gap: .35rem; }
+    .anw-account-row .text-end { text-align: left !important; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 anw-band">
+  <div class="col-md-4">
+    <div class="anw-metric">
+      <div class="anw-label">Net Worth</div>
+      <div class="anw-value">{{ format_inr(net_worth.net_worth) if format_inr is defined else net_worth.net_worth }}</div>
+      <div class="anw-subtle">As of {{ net_worth.date }}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="anw-metric">
+      <div class="anw-label">Assets</div>
+      <div class="anw-value">{{ format_inr(net_worth.assets_total) if format_inr is defined else net_worth.assets_total }}</div>
+      <div class="anw-subtle">{{ asset_count }} tracked asset accounts</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="anw-metric">
+      <div class="anw-label">Liabilities</div>
+      <div class="anw-value">{{ format_inr(net_worth.liabilities_total) if format_inr is defined else net_worth.liabilities_total }}</div>
+      <div class="anw-subtle">{{ liability_count }} tracked liability accounts</div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header-custom">
+    <i class="bi bi-wallet2" style="color:var(--brand)"></i>
+    Accounts
+    <span class="ms-auto anw-subtle">{{ accounts|length }} active</span>
+  </div>
+  <div class="card-body p-0">
+    {% if accounts %}
+      {% for account in accounts %}
+      <div class="anw-account-row">
+        <div>
+          <div class="fw-bold">{{ account.name }}</div>
+          <div class="anw-subtle">{{ account.institution or account.type_label }}</div>
+        </div>
+        <div>
+          <span class="anw-chip">
+            <i class="bi {{ 'bi-credit-card-2-front' if account.is_liability else 'bi-bank' }}"></i>
+            {{ account.type_label }}
+          </span>
+        </div>
+        <div class="anw-subtle">
+          Updated {{ account.source_date }}<br>
+          {{ account.source }}
+        </div>
+        <div class="text-end fw-bold">
+          {{ format_inr(account.balance) if format_inr is defined else account.balance }}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="p-4 text-muted">No accounts yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header-custom">
+    <i class="bi bi-arrow-left-right" style="color:var(--accent)"></i>
+    Transfer Review Candidates
+    <span class="ms-auto anw-subtle">{{ transfer_candidates|length }} found</span>
+  </div>
+  <div class="card-body">
+    {% if transfer_candidates %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Confidence</th>
+              <th>Amount</th>
+              <th>From</th>
+              <th>To / Account</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for candidate in transfer_candidates %}
+            <tr>
+              <td>{{ candidate.confidence|capitalize }}</td>
+              <td>{{ format_inr(candidate.amount) if format_inr is defined else candidate.amount }}</td>
+              <td>{{ candidate.from_account_id or candidate.account_id or "-" }}</td>
+              <td>{{ candidate.to_account_id or candidate.account_id or "-" }}</td>
+              <td class="anw-subtle">{{ candidate.assumption }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted">No likely transfers in the current review set.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

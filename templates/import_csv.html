@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Import CSV - SpendSight{% endblock %}
+{% block page_title %}Import CSV{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-file-earmark-spreadsheet-fill" style="color:var(--accent);"></i>
+        Statement Import
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('import_csv') }}" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label">CSV File</label>
+            <input class="form-control" type="file" name="csv_file" accept=".csv,text/csv" required>
+          </div>
+          <div class="p-3 rounded mb-3" style="background:var(--surface-2);border:1px solid var(--border);font-size:.82rem;color:var(--text-secondary);">
+            Supported headers: date, amount, category, subcategory, merchant, description, notes, payment_method, account.
+          </div>
+          <button class="btn btn-brand w-100">Import Expenses</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card mb-4">
+      <div class="card-header-custom">
+        <i class="bi bi-shield-check-fill" style="color:var(--brand);"></i>
+        Import Automation
+      </div>
+      <div class="card-body p-4">
+        <p style="color:var(--text-secondary);font-size:.9rem;">
+          Imported rows are checked for duplicates and then passed through your transaction rules before saving.
+        </p>
+        {% if rules %}
+          <div class="d-flex flex-wrap gap-2">
+            {% for rule in rules[:8] %}
+            <span class="badge bg-secondary">{{ rule.name }}</span>
+            {% endfor %}
+          </div>
+        {% else %}
+          <a href="{{ url_for('rules') }}" class="btn btn-sm btn-outline-success">Create your first rule</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if result %}
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-clipboard-check-fill" style="color:var(--accent);"></i>
+        Import Result
+        <span class="ms-auto" style="font-size:.8rem;color:var(--text-muted);font-weight:600;">
+          {{ result.imported_count }} imported · {{ result.skipped_count }} skipped
+        </span>
+      </div>
+      <div class="card-body p-4">
+        {% if result.expenses %}
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>Date</th><th>Item</th><th>Category</th><th class="text-end">Amount</th></tr></thead>
+            <tbody>
+              {% for e in result.expenses[:10] %}
+              <tr>
+                <td>{{ e.date }}</td>
+                <td>{{ e.subcategory }}</td>
+                <td>{{ e.category }}</td>
+                <td class="text-end fw-bold">{{ format_inr(e.amount) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% if result.skipped %}
+        <div style="font-size:.82rem;color:var(--text-muted);">
+          Skipped rows:
+          {% for row in result.skipped[:8] %}
+            <span class="badge bg-secondary">Row {{ row.row }}: {{ row.reason }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

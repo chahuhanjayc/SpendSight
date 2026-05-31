@@ -108,9 +108,9 @@
     display: flex;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
-    gap: 14px;
-    padding: 2px 4px 18px 4px;
-    margin: 0 -4px;
+    gap: 10px;
+    padding: 2px 2px 12px;
+    margin: 0 -2px;
     scrollbar-width: none;
     -ms-overflow-style: none;
     list-style: none;
@@ -128,7 +128,7 @@
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       overflow-x: visible;
-      gap: 16px;
+      gap: 12px;
       padding: 0;
       margin: 0;
     }
@@ -437,7 +437,7 @@
             Daily Spending
           </div>
           <!-- Increased height from 260px to 300px for better visibility -->
-          <div style="position:relative;height:300px;">
+          <div style="position:relative;height:240px;">
             <canvas id="dashDailyChart"></canvas>
           </div>
         </div>
@@ -524,11 +524,14 @@
         <div class="row g-2">
           {% for t in templates %}
           <div class="col-6 col-md-3 col-lg-2">
-            <a href="{{ url_for('add_from_template', template_id=t.id) }}" class="template-btn">
-              <span class="cat-badge mb-1" style="background:{{ get_category_color(t.category) }};">{{ t.category[:8] }}</span>
-              <div class="t-name">{{ t.name }}</div>
-              <div class="t-sub">{{ currency_symbol }}{{ "%.0f"|format(t.amount) }} · {{ t.payment_method }}</div>
-            </a>
+            <form method="POST" action="{{ url_for('add_from_template', template_id=t.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="template-btn border-0 w-100 text-start">
+                <span class="cat-badge mb-1" style="background:{{ get_category_color(t.category) }};">{{ t.category[:8] }}</span>
+                <div class="t-name">{{ t.name }}</div>
+                <div class="t-sub">{{ currency_symbol }}{{ "%.0f"|format(t.amount) }} · {{ t.payment_method }}</div>
+              </button>
+            </form>
           </div>
           {% endfor %}
         </div>
@@ -594,6 +597,12 @@ const PM_COLORS = ['#1A56DB','#0E9F6E','#E3A008','#7E3AF2','#F05252','#FF8C00'];
 // Named colours for specific payment methods so EMI always looks consistent
 const PM_COLOR_MAP = { 'EMI': '#7E3AF2', 'Cash': '#0E9F6E' };
 function pmColor(label, idx) { return PM_COLOR_MAP[label] || PM_COLORS[idx] || '#9CA3AF'; }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+function jsString(value) { return JSON.stringify(String(value ?? '')); }
 
 function setPeriod(btn, period) {
   document.querySelectorAll('.period-pill').forEach(b => b.classList.remove('active'));
@@ -630,11 +639,13 @@ async function loadPeriodData() {
 
   // ── Category bar rows ──
   function barRow(label, color, pct, amount, onclickStr) {
+    const safeLabel = escapeHtml(label);
+    const safeOnclick = escapeHtml(onclickStr);
     return `<div class="d-flex align-items-center gap-2 px-1 py-2"
          style="border-bottom:1px solid var(--border);cursor:pointer;"
-         onclick="${onclickStr}">
+         onclick="${safeOnclick}">
       <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
-      <span style="font-size:.81rem;color:var(--text-secondary);width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;" title="${label}">${label}</span>
+      <span style="font-size:.81rem;color:var(--text-secondary);width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;" title="${safeLabel}">${safeLabel}</span>
       <div style="flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden;">
         <div style="width:${pct}%;height:100%;background:${color};border-radius:99px;transition:width .45s ease;"></div>
       </div>
@@ -645,7 +656,7 @@ async function loadPeriodData() {
 
   document.getElementById('dashCatRows').innerHTML = data.cat_labels.map((l, i) =>
     barRow(l, data.cat_colors[i], data.cat_pct[i], data.cat_amounts[i],
-      `showTransactionDetails('category','${l.replace(/'/g,"\\'").replace(/"/g,"&quot;")}',periodDates.start,periodDates.end)`)
+      `showTransactionDetails('category',${jsString(l)},periodDates.start,periodDates.end)`)
   ).join('');
 
   // ── Daily bar chart ──
@@ -705,7 +716,7 @@ async function loadPeriodData() {
     document.getElementById('dashPmRows').innerHTML = data.pm_labels.map((l, i) => {
       const pct = Math.round(data.pm_amounts[i] / pmTotal * 1000) / 10;
       return barRow(l, pmColor(l, i), pct, data.pm_amounts[i],
-        `showTransactionDetails('payment','${l.replace(/'/g,"\\'").replace(/"/g,"&quot;")}',periodDates.start,periodDates.end)`);
+        `showTransactionDetails('payment',${jsString(l)},periodDates.start,periodDates.end)`);
     }).join('');
   }
 }
@@ -873,6 +884,8 @@ async function loadSpendingForecast() {
         ? Math.min(Math.round(m.avg_spend / m.available * 100), 100) : 0;
       const barCol     = usedPct >= 100 ? 'var(--danger)'
                        : usedPct >= 80  ? 'var(--warn)' : 'var(--accent)';
+      const safeLabel  = escapeHtml(m.label);
+      const safePeriod = escapeHtml(m.period);
 
       const extraRow = m.extra_income > 0
         ? `<div style="font-size:.71rem;color:var(--text-muted);margin-top:1px;">
@@ -896,8 +909,8 @@ async function loadSpendingForecast() {
           <!-- Month header -->
           <div class="d-flex align-items-center justify-content-between mb-2">
             <div>
-              <div style="font-size:.95rem;font-weight:800;color:var(--text-primary);">${m.label}</div>
-              <div style="font-size:.71rem;color:var(--text-muted);">${m.period}</div>
+              <div style="font-size:.95rem;font-weight:800;color:var(--text-primary);">${safeLabel}</div>
+              <div style="font-size:.71rem;color:var(--text-muted);">${safePeriod}</div>
             </div>
             <span class="badge" style="background:${safe ? 'var(--accent)' : 'var(--danger)'};color:#fff;font-size:.68rem;">
               ${safe ? '✓ On track' : '⚠ At risk'}
@@ -966,7 +979,7 @@ function showForecastDetails(index) {
           <tbody>
             ${m.emis.map(e => `
               <tr>
-                <td class="ps-0" style="color:var(--text-muted);">${e.name}</td>
+                <td class="ps-0" style="color:var(--text-muted);">${escapeHtml(e.name)}</td>
                 <td class="text-end pe-0 fw-bold" style="color:var(--danger);">−${fmtINR(e.amount)}</td>
               </tr>
             `).join('')}

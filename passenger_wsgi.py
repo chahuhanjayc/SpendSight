@@ -1,21 +1,24 @@
 import sys
 import os
 
-# Add your app directory to the path
-INTERP = os.path.join(os.environ.get('HOME'), 'virtualenv', 'bin', 'python')
-if os.path.exists(INTERP):
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+HOME = os.environ.get("HOME")
+INTERP = os.path.join(HOME, "virtualenv", "bin", "python") if HOME else None
+if INTERP and os.path.exists(INTERP):
     sys.executable = INTERP
 
-sys.path.insert(0, os.path.dirname(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
-from app import app as application
+from app import app as flask_app
 
-# Override the script name to handle the /SS subpath
 def application(environ, start_response):
-    # Remove the /SS prefix for Flask to handle
-    path_info = environ.get('PATH_INFO', '')
-    if path_info.startswith('/SS'):
-        environ['PATH_INFO'] = path_info[3:]  # Remove /SS
-        environ['SCRIPT_NAME'] = '/SS'
-    return app(environ, start_response)
-    return app(environ, start_response)
+    path_info = environ.get("PATH_INFO") or ""
+
+    if path_info == "/SS" or path_info.startswith("/SS/"):
+        environ = environ.copy()
+        environ["SCRIPT_NAME"] = "/SS"
+        environ["PATH_INFO"] = path_info[3:] or "/"
+
+    return flask_app(environ, start_response)

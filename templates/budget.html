@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Envelope Budget - SpendSight{% endblock %}
+{% block page_title %}Envelope Budget{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-4">
+  <form method="GET" action="{{ url_for('budget') }}" class="d-flex gap-2 align-items-center">
+    <input class="form-control" type="month" name="month" value="{{ selected_month }}">
+    <button class="btn btn-outline-primary"><i class="bi bi-calendar3"></i></button>
+  </form>
+  <div class="d-flex flex-wrap gap-2">
+    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Left to assign {{ format_inr(budget.left_to_assign) }}</span>
+    <span class="badge bg-success-subtle text-success border border-success-subtle">Safe to spend {{ format_inr(budget.safe_to_spend) }}</span>
+    {% if budget.over_count %}
+    <span class="badge bg-danger">{{ budget.over_count }} over budget</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(budget.monthly_income) }}</div><div class="l">Income</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(budget.fixed_due) }}</div><div class="l">Bills and EMIs</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(budget.assigned_total) }}</div><div class="l">Assigned</div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="stat-mini"><div class="v">{{ format_inr(budget.remaining_total) }}</div><div class="l">Envelope Balance</div></div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-piggy-bank-fill" style="color:var(--brand);"></i>
+        {{ selected_month }} Envelopes
+        <span class="ms-auto" style="font-size:.8rem;color:var(--text-muted);font-weight:600;">{{ budget.row_count }} categories</span>
+      </div>
+      <div class="card-body p-4">
+        {% if budget.rows %}
+          <div class="d-grid gap-3">
+          {% for row in budget.rows %}
+            <div class="p-3 rounded" style="border:1px solid var(--border);background:var(--surface-2);">
+              <form method="POST" action="{{ url_for('budget') }}" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="save_envelope">
+                <input type="hidden" name="envelope_id" value="{{ row.id }}">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <div class="col-md-3">
+                  <label class="form-label">Category</label>
+                  <input class="form-control" name="category" value="{{ row.category }}" readonly>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Assigned</label>
+                  <input class="form-control" name="assigned" type="number" step="0.01" min="0" value="{{ row.assigned }}">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Annual</label>
+                  <input class="form-control" name="annual_amount" type="number" step="0.01" min="0" value="{{ row.annual_amount }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Notes</label>
+                  <input class="form-control" name="notes" value="{{ row.notes }}">
+                </div>
+                <div class="col-md-2 d-flex gap-2">
+                  <button class="btn btn-outline-success" title="Save"><i class="bi bi-check-lg"></i></button>
+                </div>
+                <div class="col-12">
+                  <label class="form-check-label" style="font-size:.82rem;">
+                    <input class="form-check-input" type="checkbox" name="rollover_enabled" {{ "checked" if row.rollover_enabled }}>
+                    Rollover
+                  </label>
+                </div>
+              </form>
+              <div class="mt-3">
+                <div class="d-flex justify-content-between mb-1" style="font-size:.78rem;color:var(--text-muted);">
+                  <span>Spent {{ format_inr(row.spent) }} of {{ format_inr(row.available) }}</span>
+                  <span class="{{ 'text-danger' if row.status == 'over' else 'text-success' }}">{{ format_inr(row.remaining) }} left</span>
+                </div>
+                <div style="height:8px;background:var(--border);border-radius:99px;overflow:hidden;">
+                  <div style="height:100%;width:{{ [row.progress_pct, 100]|min }}%;background:{{ 'var(--danger)' if row.status == 'over' else 'var(--accent)' }};"></div>
+                </div>
+                <div class="mt-1" style="font-size:.74rem;color:var(--text-muted);">
+                  Monthly annual set-aside {{ format_inr(row.annual_monthly) }} | Rollover {{ format_inr(row.rollover) }}
+                </div>
+              </div>
+              {% if row.id %}
+              <form method="POST" action="{{ url_for('delete_budget_envelope', envelope_id=row.id) }}" class="mt-2" onsubmit="return confirm('Delete this envelope?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <button class="btn btn-sm btn-link p-0" style="color:var(--danger);">Delete envelope</button>
+              </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-center py-4" style="color:var(--text-muted);">No envelopes for this month yet.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-plus-circle-fill" style="color:var(--accent);"></i>
+        Add Envelope
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" action="{{ url_for('budget') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="save_envelope">
+          <input type="hidden" name="month" value="{{ selected_month }}">
+          <div class="mb-3">
+            <label class="form-label">Category</label>
+            <select class="form-select" name="category">
+              {% for cat in categories.keys() %}
+              <option value="{{ cat }}">{{ cat }}</option>
+              {% endfor %}
+              <option value="__new__">New category</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">New Category</label>
+            <input class="form-control" name="new_category" placeholder="Annual Travel">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label">Assigned</label>
+              <input class="form-control" name="assigned" type="number" step="0.01" min="0" value="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Annual</label>
+              <input class="form-control" name="annual_amount" type="number" step="0.01" min="0" value="0">
+            </div>
+          </div>
+          <label class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="rollover_enabled" checked>
+            <span class="form-check-label">Rollover unused balance</span>
+          </label>
+          <button class="btn btn-brand w-100">Add Envelope</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

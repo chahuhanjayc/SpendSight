@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="csrf-token" content="{{ csrf_token() }}"/>
+  <meta name="theme-color" content="#1A56DB"/>
   <title>{% block title %}SpendSight{% endblock %}</title>
   <script>
     // Immediate theme application to prevent flash
@@ -11,11 +13,21 @@
       document.documentElement.setAttribute('data-theme', saved);
     })();
   </script>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"/>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"/>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
+    function ssCsrfHeaders(headers = {}) {
+      const token = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      return { ...headers, 'X-CSRFToken': token };
+    }
+    function ssEscapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
     if (window['pdfjs-dist/build/pdf']) {
       pdfjsLib = window['pdfjs-dist/build/pdf'];
     }
@@ -125,40 +137,40 @@
     ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
 
     /* Tables */
-    .table { 
-      --bs-table-bg: transparent; 
-      --bs-table-color: var(--text-primary); 
-      --bs-table-border-color: var(--border); 
-      color: var(--text-primary); 
+    .table {
+      --bs-table-bg: transparent;
+      --bs-table-color: var(--text-primary);
+      --bs-table-border-color: var(--border);
+      color: var(--text-primary);
       background-color: transparent;
     }
     .table-hover tbody tr:hover { --bs-table-hover-bg: var(--surface-2); }
-    [data-theme="dark"] .table { 
-      --bs-table-striped-color: var(--text-primary); 
-      --bs-table-active-color: var(--text-primary); 
-      --bs-table-hover-color: var(--text-primary); 
+    [data-theme="dark"] .table {
+      --bs-table-striped-color: var(--text-primary);
+      --bs-table-active-color: var(--text-primary);
+      --bs-table-hover-color: var(--text-primary);
     }
     .table thead th { background-color: var(--surface-2); border-bottom-color: var(--border); }
     .table tbody td { background-color: transparent; border-bottom-color: var(--border); }
 
     /* Cards & Components */
-    .card { 
-      --bs-card-bg: var(--surface); 
+    .card {
+      --bs-card-bg: var(--surface);
       --bs-card-border-color: var(--border);
-      background: var(--surface); 
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px; 
+      border-radius: 8px;
       box-shadow: var(--shadow-sm);
       transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
     }
-    .card:hover { 
-      box-shadow: var(--shadow-md); 
+    .card:hover {
+      box-shadow: var(--shadow-md);
       border-color: var(--brand-border);
     }
     .card-header-custom {
       background: transparent; border-bottom: 1px solid var(--border);
-      padding: 14px 18px; border-radius: 12px 12px 0 0;
-      font-weight: 600; color: var(--text-primary); font-size: .88rem;
+      padding: 10px 14px; border-radius: 8px 8px 0 0;
+      font-weight: 600; color: var(--text-primary); font-size: .84rem;
       display: flex; align-items: center; gap: 8px;
     }
     [data-theme="dark"] .card-header-custom {
@@ -169,73 +181,77 @@
        SIDEBAR
     ═══════════════════════════════════════════════════════════════════════ */
     #sidebar {
-      position: fixed; top: 0; left: 0; height: 100vh; width: 240px;
+      position: fixed; top: 0; left: 0; height: 100vh; width: 220px;
       background: var(--sidebar-bg);
       display: flex; flex-direction: column; z-index: 100;
       overflow-y: auto; overflow-x: hidden;
       border-right: 1px solid var(--border);
     }
-    .sidebar-brand { padding: 22px 20px 16px; border-bottom: 1px solid var(--border); }
+    .sidebar-brand { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); }
     .sidebar-brand .logo-mark {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 32px; height: 32px; border-radius: 8px;
+      width: 28px; height: 28px; border-radius: 7px;
       background: linear-gradient(135deg,#1A56DB,#7E3AF2);
-      margin-right: 10px; flex-shrink: 0;
+      margin-right: 8px; flex-shrink: 0;
     }
     .sidebar-brand .logo-text {
-      font-size: 1.2rem; font-weight: 800; color: var(--sidebar-brand-text);
+      font-size: 1.08rem; font-weight: 800; color: var(--sidebar-brand-text);
       letter-spacing: -0.5px; vertical-align: middle;
     }
     .sidebar-brand .logo-text span { color: var(--sidebar-brand-accent); }
-    .sidebar-brand small { display: block; color: var(--sidebar-text); font-size: .7rem; margin-top: 4px; }
+    .sidebar-brand small { display: block; color: var(--sidebar-text); font-size: .66rem; margin-top: 2px; }
 
     .nav-section-label {
-      padding: 18px 20px 5px;
-      font-size: .65rem; font-weight: 700; letter-spacing: 1.2px;
+      padding: 12px 16px 4px;
+      font-size: .62rem; font-weight: 700; letter-spacing: 1px;
       color: var(--sidebar-label); text-transform: uppercase;
     }
-    .sidebar-nav a {
+    .sidebar-nav a,
+    .sidebar-nav button {
       display: flex; align-items: center; gap: 10px;
-      padding: 10px 20px; color: var(--sidebar-text);
-      text-decoration: none; font-size: .86rem; font-weight: 500;
+      padding: 8px 16px; color: var(--sidebar-text);
+      text-decoration: none; font-size: .82rem; font-weight: 500;
       border-left: 3px solid transparent;
       transition: all .15s;
+      width: 100%; background: transparent; border-top: 0; border-right: 0; border-bottom: 0; text-align: left;
     }
-    .sidebar-nav a:hover   { color: var(--sidebar-hover-text); background: var(--sidebar-hover-bg); transform: translateX(4px); }
+    .sidebar-nav a:hover,
+    .sidebar-nav button:hover { color: var(--sidebar-hover-text); background: var(--sidebar-hover-bg); transform: translateX(4px); }
     .sidebar-nav a.active  {
       color: var(--sidebar-active-text); background: var(--sidebar-active-bg);
       border-left-color: var(--sidebar-active-border); font-weight: 600;
     }
-    .sidebar-nav a i { font-size: 1rem; width: 18px; text-align: center; flex-shrink: 0; }
-    .sidebar-foot { margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--border); }
+    .sidebar-nav a i,
+    .sidebar-nav button i { font-size: .94rem; width: 16px; text-align: center; flex-shrink: 0; }
+    .sidebar-foot { margin-top: auto; padding: 12px 16px; border-top: 1px solid var(--border); }
     .sidebar-foot small { color: var(--sidebar-foot); font-size: .68rem; line-height: 1.5; }
 
     /* ═══════════════════════════════════════════════════════════════════════
        MAIN / TOPBAR
     ═══════════════════════════════════════════════════════════════════════ */
-    #main { margin-left: 240px; min-height: 100vh; }
+    #main { margin-left: 220px; min-height: 100vh; }
     .topbar {
       background: var(--topbar-bg); border-bottom: 1px solid var(--topbar-border);
-      padding: 0 24px; height: 56px;
+      padding: 0 18px; height: 48px;
       display: flex; align-items: center; justify-content: space-between;
       position: sticky; top: 0; z-index: 50;
     }
     .topbar-title {
-      font-weight: 700; font-size: 1rem; color: var(--text-primary);
+      font-weight: 700; font-size: .94rem; color: var(--text-primary);
       display: flex; align-items: center; gap: 8px;
     }
     .topbar-title .page-icon {
-      width: 28px; height: 28px; border-radius: 7px;
+      width: 26px; height: 26px; border-radius: 7px;
       background: var(--brand-light); color: var(--brand);
       display: inline-flex; align-items: center; justify-content: center;
       font-size: .85rem;
     }
-    .topbar-right { display: flex; align-items: center; gap: 12px; }
-    .topbar-date { font-size: .8rem; color: var(--text-muted); }
+    .topbar-right { display: flex; align-items: center; gap: 8px; }
+    .topbar-date { font-size: .76rem; color: var(--text-muted); }
 
     /* Theme toggle */
     .theme-toggle {
-      width: 36px; height: 36px; border-radius: 8px; border: 1.5px solid var(--border);
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
       background: var(--surface-2); cursor: pointer; color: var(--text-muted);
       display: flex; align-items: center; justify-content: center; font-size: 1rem;
       transition: all .15s;
@@ -243,7 +259,7 @@
     .theme-toggle:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-light); }
     .notif-wrap { position: relative; }
     .notif-btn {
-      width: 36px; height: 36px; border-radius: 8px; border: 1.5px solid var(--border);
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
       background: var(--surface-2); cursor: pointer; color: var(--text-muted);
       display: flex; align-items: center; justify-content: center; font-size: 1rem;
       transition: all .15s; position: relative;
@@ -374,13 +390,13 @@
     }
     .vs-back-btn:hover { background: var(--brand-light); }
 
-    .page-body { padding: 24px; }
+    .page-body { padding: 16px; }
 
     /* ═══════════════════════════════════════════════════════════════════════
        STAT CARDS
     ═══════════════════════════════════════════════════════════════════════ */
     .stat-card {
-      border-radius: 12px; padding: 18px 20px; color: #fff;
+      border-radius: 8px; padding: 14px 16px; color: #fff;
       position: relative; overflow: hidden;
       box-shadow: var(--shadow-md);
       transition: transform .25s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow .2s ease;
@@ -390,16 +406,16 @@
       box-shadow: 0 8px 24px rgba(0,0,0,.15);
     }
     .stat-card {
-      min-height: 164px;
+      min-height: 132px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
     }
-    .stat-card .stat-icon { font-size: 2rem; opacity: .2; position: absolute; right: 16px; top: 14px; transition: transform .3s ease; }
+    .stat-card .stat-icon { font-size: 1.7rem; opacity: .2; position: absolute; right: 14px; top: 12px; transition: transform .3s ease; }
     .stat-card:hover .stat-icon { transform: scale(1.2) rotate(-10deg); opacity: .3; }
-    .stat-card .stat-label { font-size: .72rem; opacity: .8; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
-    .stat-card .stat-value { font-size: 1.65rem; font-weight: 800; line-height: 1.1; margin-top: 8px; }
-    .stat-card .stat-sub   { font-size: .74rem; opacity: .72; margin-top: 10px; }
+    .stat-card .stat-label { font-size: .68rem; opacity: .82; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .stat-card .stat-value { font-size: 1.42rem; font-weight: 800; line-height: 1.1; margin-top: 5px; }
+    .stat-card .stat-sub   { font-size: .7rem; opacity: .75; margin-top: 6px; }
 
     /* ═══════════════════════════════════════════════════════════════════════
        BADGES
@@ -434,7 +450,7 @@
     ═══════════════════════════════════════════════════════════════════════ */
     .template-btn {
       background: var(--surface); border: 1.5px solid var(--border);
-      border-radius: 10px; padding: 10px 12px; cursor: pointer;
+      border-radius: 8px; padding: 8px 10px; cursor: pointer;
       transition: all .15s; text-align: left; width: 100%; display: block;
       text-decoration: none;
     }
@@ -445,10 +461,11 @@
     /* ═══════════════════════════════════════════════════════════════════════
        FORMS
     ═══════════════════════════════════════════════════════════════════════ */
-    .form-label { font-weight: 600; font-size: .83rem; color: var(--text-secondary); margin-bottom: 6px; }
+    .form-label { font-weight: 600; font-size: .78rem; color: var(--text-secondary); margin-bottom: 4px; }
     .form-control, .form-select {
-      border-radius: 8px; border: 1.5px solid var(--border);
-      font-size: .9rem; background: var(--surface); color: var(--text-primary);
+      border-radius: 7px; border: 1px solid var(--border);
+      font-size: .86rem; background: var(--surface); color: var(--text-primary);
+      min-height: 36px; padding: .38rem .62rem;
     }
     .form-control:focus, .form-select:focus {
       border-color: var(--brand); box-shadow: 0 0 0 3px rgba(26,86,219,.12);
@@ -460,6 +477,12 @@
     [data-theme="dark"] .form-control:focus,
     [data-theme="dark"] .form-select:focus { background: var(--surface-2); }
     [data-theme="dark"] .form-select option { background: var(--surface-2); color: var(--text-primary); }
+    .form-control-sm,
+    .form-select-sm {
+      min-height: 30px;
+      padding: .24rem .5rem;
+      font-size: .8rem;
+    }
 
     /* Amount big input */
     .amount-wrap { position: relative; }
@@ -485,8 +508,8 @@
        BUTTONS
     ═══════════════════════════════════════════════════════════════════════ */
     .btn-brand {
-      background: var(--brand); color: #fff; border: none; border-radius: 8px;
-      font-weight: 600; padding: 9px 20px; transition: all .15s;
+      background: var(--brand); color: #fff; border: none; border-radius: 7px;
+      font-weight: 600; padding: 7px 14px; transition: all .15s;
     }
     .btn-brand:hover { background: var(--brand-hover); color: #fff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(26,86,219,.35); }
     .btn-outline-secondary {
@@ -499,11 +522,12 @@
     ═══════════════════════════════════════════════════════════════════════ */
     .expense-table { color: var(--text-primary); }
     .expense-table th {
-      background: var(--surface-2); font-size: .76rem; font-weight: 700;
+      background: var(--surface-2); font-size: .72rem; font-weight: 700;
       color: var(--text-muted); text-transform: uppercase; letter-spacing: .4px;
       border-bottom: 1px solid var(--border);
     }
-    .expense-table td { vertical-align: middle; font-size: .87rem; border-bottom: 1px solid var(--border); color: var(--text-primary); }
+    .expense-table td { vertical-align: middle; font-size: .82rem; border-bottom: 1px solid var(--border); color: var(--text-primary); }
+    .expense-table > :not(caption) > * > * { padding: .46rem .55rem; }
     .expense-table tbody tr:hover td { background: var(--surface-2); }
     .expense-table tfoot td { border-top: 2px solid var(--border); }
 
@@ -511,8 +535,8 @@
        PERIOD FILTER PILLS
     ═══════════════════════════════════════════════════════════════════════ */
     .period-pill {
-      padding: 5px 14px; border-radius: 20px; border: 1.5px solid var(--border);
-      background: var(--surface); cursor: pointer; font-size: .82rem; font-weight: 600;
+      padding: 4px 10px; border-radius: 18px; border: 1px solid var(--border);
+      background: var(--surface); cursor: pointer; font-size: .78rem; font-weight: 600;
       color: var(--text-muted); transition: all .15s; white-space: nowrap;
     }
     .period-pill:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-light); }
@@ -540,7 +564,7 @@
     .insight-chip.insight-warning { background: rgba(227,160,8,.12);  color: #92400e;        border: 1px solid #E3A008;       }
     .insight-chip.insight-danger  { background: rgba(240,82,82,.12);  color: #9b1c1c;        border: 1px solid #F05252;       }
     .insight-chip.insight-success { background: rgba(14,159,110,.12); color: #05603A;        border: 1px solid #0E9F6E;       }
-    
+
     [data-theme="dark"] .insight-chip.insight-info    { background: rgba(26,86,219,.15); color: #58a6ff; border-color: rgba(56,139,253,.3); }
     [data-theme="dark"] .insight-chip.insight-warning { background: rgba(227,160,8,.15);  color: #fcd34d; border-color: rgba(227,160,8,.3); }
     [data-theme="dark"] .insight-chip.insight-danger  { background: rgba(240,82,82,.15);  color: #fca5a5; border-color: rgba(240,82,82,.3); }
@@ -580,13 +604,13 @@
        CHART CARDS
     ═══════════════════════════════════════════════════════════════════════ */
     .chart-card {
-      background: var(--surface); border-radius: 12px;
-      border: 1px solid var(--border); padding: 18px;
+      background: var(--surface); border-radius: 8px;
+      border: 1px solid var(--border); padding: 12px;
       box-shadow: var(--shadow-sm);
     }
     .chart-card .chart-title {
       font-weight: 700; color: var(--text-primary); font-size: .9rem;
-      margin-bottom: 14px; display: flex; align-items: center; gap: 7px;
+      margin-bottom: 10px; display: flex; align-items: center; gap: 7px;
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
@@ -627,20 +651,20 @@
     ═══════════════════════════════════════════════════════════════════════ */
     .billing-banner {
       background: var(--brand-light); border: 1px solid var(--brand-border);
-      border-radius: 10px; padding: 9px 16px; margin-bottom: 20px;
+      border-radius: 8px; padding: 7px 12px; margin-bottom: 14px;
     }
     [data-theme="dark"] .billing-banner {
       background: #161b22; border-color: #30363d;
     }
     .stat-mini {
       background: var(--surface-2); border: 1px solid var(--border);
-      border-radius: 10px; padding: 14px 16px; text-align: center;
+      border-radius: 8px; padding: 10px 12px; text-align: center;
     }
     [data-theme="dark"] .stat-mini {
       background: #1c2128; border-color: #30363d;
     }
-    .stat-mini .v { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); }
-    .stat-mini .l { font-size: .73rem; color: var(--text-muted); font-weight: 500; margin-top: 2px; }
+    .stat-mini .v { font-size: 1.12rem; font-weight: 800; color: var(--text-primary); }
+    .stat-mini .l { font-size: .7rem; color: var(--text-muted); font-weight: 500; margin-top: 1px; }
 
     .progress { background: var(--surface-2); }
     [data-theme="dark"] .input-group-text {
@@ -653,18 +677,18 @@
 
     /* FABs */
     .fab {
-      position: fixed; bottom: 28px; right: 28px; z-index: 200;
-      width: 52px; height: 52px; border-radius: 50%;
+      position: fixed; bottom: 22px; right: 22px; z-index: 200;
+      width: 46px; height: 46px; border-radius: 50%;
       background: var(--brand); color: #fff;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 4px 16px rgba(26,86,219,.4);
-      text-decoration: none; font-size: 1.5rem;
+      text-decoration: none; font-size: 1.28rem;
       transition: transform .15s, box-shadow .15s;
     }
     .fab:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(26,86,219,.55); color: #fff; }
 
     .fab-calc {
-      bottom: 90px;
+      bottom: 78px;
       background: var(--accent);
       box-shadow: 0 4px 16px rgba(14,159,110,.4);
     }
@@ -762,10 +786,10 @@
 
     .nav-tabs-custom {
       display: inline-flex;
-      gap: .5rem;
-      padding: .35rem;
-      margin-bottom: 1rem;
-      border-radius: 14px;
+      gap: .35rem;
+      padding: .25rem;
+      margin-bottom: .75rem;
+      border-radius: 10px;
       background: var(--surface-2);
       border: 1px solid var(--border);
     }
@@ -773,9 +797,9 @@
       border: 1px solid transparent;
       background: transparent;
       color: var(--text-secondary);
-      border-radius: 10px;
-      padding: .65rem 1rem;
-      font-size: .92rem;
+      border-radius: 8px;
+      padding: .5rem .8rem;
+      font-size: .84rem;
       font-weight: 700;
       line-height: 1;
       display: inline-flex;
@@ -797,17 +821,17 @@
 
     .scan-area {
       border: 2px dashed var(--border-2);
-      border-radius: 12px;
-      padding: 1.25rem;
+      border-radius: 8px;
+      padding: .9rem;
       text-align: center;
       background: var(--surface-2);
       cursor: pointer;
     }
     .preview-img-container {
       display: none;
-      margin-top: 1rem;
+      margin-top: .75rem;
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
       background: var(--surface-2);
       max-width: 100%;
@@ -837,7 +861,7 @@
        SPENDBOT CHAT WIDGET
     ══════════════════════════════════════════════════════════════════════ */
     .fab-chat {
-      bottom: 152px;
+      bottom: 134px;
       background: #7E3AF2;
       box-shadow: 0 4px 16px rgba(126,58,242,.4);
     }
@@ -958,11 +982,46 @@
     /* ── Hamburger button (hidden on desktop) ── */
     #sidebarToggle {
       display: none; align-items: center; justify-content: center;
-      width: 36px; height: 36px; border-radius: 8px; border: none;
+      width: 32px; height: 32px; border-radius: 8px; border: none;
       background: var(--surface-2); color: var(--text-primary);
-      cursor: pointer; font-size: 1.1rem; flex-shrink: 0;
-      margin-right: 8px;
+      cursor: pointer; font-size: 1rem; flex-shrink: 0;
+      margin-right: 6px;
     }
+
+    /* Dense operating layout */
+    .page-body .mb-4 { margin-bottom: 1rem !important; }
+    .page-body .mb-3 { margin-bottom: .75rem !important; }
+    .page-body .mt-3 { margin-top: .75rem !important; }
+    .page-body .mt-4 { margin-top: 1rem !important; }
+    .page-body .gap-3 { gap: .75rem !important; }
+    .page-body .gap-4 { gap: 1rem !important; }
+    .page-body .row.g-4 {
+      --bs-gutter-x: 1rem;
+      --bs-gutter-y: 1rem;
+    }
+    .page-body .row.g-3 {
+      --bs-gutter-x: .75rem;
+      --bs-gutter-y: .75rem;
+    }
+    .page-body .row.g-2 {
+      --bs-gutter-x: .5rem;
+      --bs-gutter-y: .5rem;
+    }
+    .card > .card-body.p-4 { padding: .875rem !important; }
+    .card > .card-body.p-3 { padding: .75rem !important; }
+    .card .p-3.rounded {
+      padding: .75rem !important;
+      border-radius: 8px !important;
+    }
+    .page-body .p-4.text-center,
+    .page-body .py-4,
+    .page-body .py-5 {
+      padding-top: 1.6rem !important;
+      padding-bottom: 1.6rem !important;
+    }
+    .list-group-item { padding: .55rem .75rem; }
+    .modal-body.p-4 { padding: 1rem !important; }
+    .modal-header { padding: .85rem 1rem .35rem; }
 
     @media (max-width: 768px) {
       #sidebar      { transform: translateX(-100%); }
@@ -972,7 +1031,8 @@
       /* Tighten topbar padding on small screens */
       .topbar { padding: 0 14px; }
       .topbar-date { display: none; }      /* hide date on very small screens */
-      .main-content { padding: 16px 14px; }
+      .page-body { padding: 12px; }
+      .stat-card { min-height: 118px; }
     }
   </style>
   {% block extra_head %}{% endblock %}
@@ -1005,6 +1065,15 @@
     <a href="{{ url_for('view_expenses') }}"    class="{{ 'active' if request.endpoint == 'view_expenses' }}">
       <i class="bi bi-list-ul"></i> All Expenses
     </a>
+    <a href="{{ url_for('import_csv') }}"       class="{{ 'active' if request.endpoint == 'import_csv' }}">
+      <i class="bi bi-file-earmark-spreadsheet-fill"></i> Import CSV
+    </a>
+    <a href="{{ url_for('review_inbox') }}"     class="{{ 'active' if request.endpoint in ['review_inbox', 'update_review_expense'] }}">
+      <i class="bi bi-inbox-fill"></i> Review
+    </a>
+    <a href="{{ url_for('receipts') }}"         class="{{ 'active' if request.endpoint in ['receipts', 'receipt_file', 'create_expense_from_receipt'] }}">
+      <i class="bi bi-receipt-cutoff"></i> Receipts
+    </a>
   </div>
 
   <div class="nav-section-label">Insights</div>
@@ -1018,8 +1087,23 @@
     <a href="{{ url_for('income') }}"           class="{{ 'active' if request.endpoint == 'income' }}">
       <i class="bi bi-cash-stack"></i> Income &amp; Budget
     </a>
+    <a href="{{ url_for('budget') }}"           class="{{ 'active' if request.endpoint in ['budget', 'delete_budget_envelope'] }}">
+      <i class="bi bi-piggy-bank-fill"></i> Envelope Budget
+    </a>
+    <a href="{{ url_for('accounts') }}"         class="{{ 'active' if request.endpoint in ['accounts', 'delete_account'] }}">
+      <i class="bi bi-bank"></i> Accounts
+    </a>
+    <a href="{{ url_for('planning') }}"         class="{{ 'active' if request.endpoint == 'planning' }}">
+      <i class="bi bi-bullseye"></i> Goals &amp; Recurring
+    </a>
+    <a href="{{ url_for('recurring_calendar') }}" class="{{ 'active' if request.endpoint == 'recurring_calendar' }}">
+      <i class="bi bi-calendar2-week"></i> Recurring Calendar
+    </a>
     <a href="{{ url_for('manage_templates') }}" class="{{ 'active' if request.endpoint == 'manage_templates' }}">
       <i class="bi bi-lightning-fill"></i> Templates
+    </a>
+    <a href="{{ url_for('rules') }}"            class="{{ 'active' if request.endpoint == 'rules' }}">
+      <i class="bi bi-magic"></i> Rules
     </a>
   </div>
 
@@ -1033,16 +1117,19 @@
       <i class="bi bi-people-fill"></i> Users
     </a>
     {% endif %}
-    <a href="{{ url_for('logout') }}" class="text-danger">
-      <i class="bi bi-box-arrow-right"></i> Logout
-    </a>
+    <form method="POST" action="{{ url_for('logout') }}" class="m-0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="text-danger">
+        <i class="bi bi-box-arrow-right"></i> Logout
+      </button>
+    </form>
   </div>
 
   <div class="sidebar-foot">
     <small>
       <i class="bi bi-shield-lock-fill" style="color:#0E9F6E;"></i>
       Data stored locally<br>
-      <span style="color:var(--sidebar-label);">expenses.json</span>
+      <span style="color:var(--sidebar-label);">user_data JSON</span>
     </small>
   </div>
 </nav>
@@ -1105,6 +1192,7 @@
           {% set is_active = (u.id == current_view_id) %}
           <li>
             <form method="POST" action="{{ url_for('admin_switch_user') }}" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="user_id" value="{{ u.id }}">
               <button type="submit" class="vs-user-btn {{ 'active' if is_active else '' }}">
                 <span class="vs-avatar {{ 'active' if is_active else '' }}">{{ u.id[0] }}</span>
@@ -1126,6 +1214,7 @@
           <li><hr class="dropdown-divider"></li>
           <li>
             <form method="POST" action="{{ url_for('admin_switch_user') }}" class="m-0">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="user_id" value="{{ current_user.id }}">
               <button type="submit" class="vs-back-btn">
                 <i class="bi bi-arrow-return-left"></i> Back to my view
@@ -1219,6 +1308,7 @@
         <!-- Manual Pane -->
         <div id="modalManualPane">
           <form method="POST" action="{{ url_for('add_expense') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <!-- Amount -->
             <div class="mb-4">
               <label class="form-label">Amount ({{ currency_symbol }}) <span style="color:var(--danger)">*</span></label>
@@ -1263,11 +1353,15 @@
 
             <!-- Date & Payment -->
             <div class="row g-3 mb-3">
-              <div class="col-6">
+              <div class="col-md-4">
                 <label class="form-label">Date</label>
                 <input type="date" name="date" value="{{ today_str() }}" class="form-control">
               </div>
-              <div class="col-6">
+              <div class="col-md-4">
+                <label class="form-label">Account</label>
+                <select name="account_id" class="form-select" id="modalAccountSelect"></select>
+              </div>
+              <div class="col-md-4">
                 <label class="form-label">Payment Method</label>
                 <select name="payment_method" class="form-select" id="modalPaymentSelect">
                 </select>
@@ -1344,7 +1438,7 @@
                 <i class="bi bi-plus-lg"></i> Add Row
               </button>
             </div>
-            
+
             <div class="table-responsive" style="max-height: 250px;">
               <table class="table table-bordered review-table mb-0">
                 <thead>
@@ -1365,11 +1459,15 @@
 
             <div class="mt-4 pt-3 border-top">
               <div class="row g-2 mb-3">
-                <div class="col-6">
+                <div class="col-md-4">
+                  <label class="form-label small">Account</label>
+                  <select id="modalBulkAccount" class="form-select form-select-sm"></select>
+                </div>
+                <div class="col-md-4">
                   <label class="form-label small">Payment Method</label>
                   <select id="modalBulkPayment" class="form-select form-select-sm"></select>
                 </div>
-                <div class="col-6">
+                <div class="col-md-4">
                   <label class="form-label small">Common Date</label>
                   <input type="date" id="modalBulkDate" value="{{ today_str() }}" class="form-control form-control-sm">
                 </div>
@@ -1408,7 +1506,7 @@
   async function initAddModalData() {
     const res = await fetch('/api/init-data');
     const d = await res.json();
-    
+
     const catSel = document.getElementById('modalCategorySelect');
     if (catSel.options.length <= 1) {
       d.categories.forEach(c => {
@@ -1427,10 +1525,44 @@
       });
     }
 
+    const accountSel = document.getElementById('modalAccountSelect');
+    if (accountSel && accountSel.options.length === 0) {
+      accountSel.appendChild(new Option('No linked account', ''));
+      (d.accounts || []).forEach(a => {
+        const label = `${a.name} (${String(a.type || 'account').replaceAll('_', ' ')})`;
+        const o = new Option(label, a.id);
+        o.dataset.paymentMethod = a.name;
+        accountSel.appendChild(o);
+        if (pmSel && !Array.from(pmSel.options).some(opt => opt.value === a.name)) {
+          pmSel.appendChild(new Option(a.name, a.name));
+        }
+      });
+      accountSel.addEventListener('change', () => {
+        const selected = accountSel.selectedOptions[0];
+        if (selected?.dataset.paymentMethod && pmSel) pmSel.value = selected.dataset.paymentMethod;
+      });
+    }
+
     const bulkPmSel = document.getElementById('modalBulkPayment');
     if (bulkPmSel && bulkPmSel.options.length === 0) {
       d.payment_methods.forEach(p => {
         const o = document.createElement('option'); o.value = p; o.textContent = p; bulkPmSel.appendChild(o);
+      });
+    }
+    const bulkAccountSel = document.getElementById('modalBulkAccount');
+    if (bulkAccountSel && bulkAccountSel.options.length === 0) {
+      bulkAccountSel.appendChild(new Option('No linked account', ''));
+      (d.accounts || []).forEach(a => {
+        const o = new Option(a.name, a.id);
+        o.dataset.paymentMethod = a.name;
+        bulkAccountSel.appendChild(o);
+        if (bulkPmSel && !Array.from(bulkPmSel.options).some(opt => opt.value === a.name)) {
+          bulkPmSel.appendChild(new Option(a.name, a.name));
+        }
+      });
+      bulkAccountSel.addEventListener('change', () => {
+        const selected = bulkAccountSel.selectedOptions[0];
+        if (selected?.dataset.paymentMethod && bulkPmSel) bulkPmSel.value = selected.dataset.paymentMethod;
       });
     }
   }
@@ -1481,7 +1613,7 @@
         const existing = JSON.parse(document.getElementById('modalCategorySelect').dataset.existingCategories || '[]');
         const errorEl = document.getElementById('modalCatError');
         const submitBtn = document.querySelector('#modalManualPane button[type="submit"]');
-        
+
         if (existing.some(c => c.toLowerCase() === val)) {
           errorEl.style.display = 'block';
           submitBtn.disabled = true;
@@ -1497,7 +1629,7 @@
     const cat = document.getElementById('modalCategorySelect').value;
     const res = await fetch(`/api/subcategories/${encodeURIComponent(cat)}`);
     const subs = await res.json();
-    
+
     const sel = document.getElementById('modalSubcategorySelect');
     sel.innerHTML = '<option value="" disabled selected>Select subcategory</option>';
     subs.forEach(s => {
@@ -1505,7 +1637,7 @@
     });
     const other = document.createElement('option');
     other.value = '__new__'; other.textContent = '+ Add new…'; sel.appendChild(other);
-    
+
     sel.onchange = function() {
       document.getElementById('modalNewSubRow').style.display = this.value === '__new__' ? 'block' : 'none';
     };
@@ -1575,20 +1707,20 @@
   let txModalInstance = null;
   async function showTransactionDetails(type, value, start, end) {
     console.log('Fetching details:', {type, value, start, end});
-    
+
     const modalEl = document.getElementById('txDetailModal');
     if (!txModalInstance) txModalInstance = new bootstrap.Modal(modalEl);
-    
+
     const title = document.getElementById('txDetailTitle');
     const body  = document.getElementById('txDetailBody');
-    
+
     title.textContent = `${value} Details`;
     body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-brand" role="status"></div></div>';
     txModalInstance.show();
 
     try {
       if (!start || !end) throw new Error('Missing dates');
-      
+
       let url = `/api/transactions-detail?start=${start}&end=${end}`;
       if (type === 'category') url += `&category=${encodeURIComponent(value)}`;
       else if (type === 'payment') url += `&payment=${encodeURIComponent(value)}`;
@@ -1612,7 +1744,7 @@
             return `
               <div class="mb-3 pb-3" style="border-bottom:1px solid var(--border);">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                  <div class="fw-bold" style="font-size:.88rem;color:var(--text-primary);">${emi.name}</div>
+                  <div class="fw-bold" style="font-size:.88rem;color:var(--text-primary);">${ssEscapeHtml(emi.name)}</div>
                   <div class="fw-bold" style="font-size:.85rem;color:var(--warn);">${fmtINR(emi.amount)}<span style="font-size:.7rem;font-weight:400;color:var(--text-muted);">/mo</span></div>
                 </div>
                 <div class="d-flex justify-content-between mb-1" style="font-size:.72rem;color:var(--text-muted);">
@@ -1627,14 +1759,14 @@
             return `
               <div class="mb-3 pb-3" style="border-bottom:1px solid var(--border);">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                  <div class="fw-bold" style="font-size:.88rem;color:var(--text-primary);">${emi.name}</div>
+                  <div class="fw-bold" style="font-size:.88rem;color:var(--text-primary);">${ssEscapeHtml(emi.name)}</div>
                   <div class="fw-bold" style="font-size:.85rem;color:var(--warn);">${fmtINR(emi.amount)}<span style="font-size:.7rem;font-weight:400;color:var(--text-muted);">/mo</span></div>
                 </div>
                 <div class="d-flex align-items-center gap-2 mb-1">
                   <span class="badge" style="background:var(--accent-light); color:var(--accent); font-size:.65rem; border:1px solid var(--accent);">Ongoing Recurring</span>
-                  <span style="font-size:.72rem;color:var(--text-muted);">${emi.frequency.replace(/_/g, ' ')} · Due on ${emi.day_of_month}th</span>
+                  <span style="font-size:.72rem;color:var(--text-muted);">${ssEscapeHtml(emi.frequency).replace(/_/g, ' ')} · Due on ${emi.day_of_month}th</span>
                 </div>
-                <div style="font-size:.72rem;color:var(--text-muted);">Starts ${emi.month}</div>
+                <div style="font-size:.72rem;color:var(--text-muted);">Starts ${ssEscapeHtml(emi.month)}</div>
               </div>`;
           }
         }).join('');
@@ -1654,10 +1786,10 @@
       if (data.expenses) {
         data.expenses.forEach(e => {
           html += `<tr>
-            <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;">${e.date}</td>
+            <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;">${ssEscapeHtml(e.date)}</td>
             <td>
-              <div class="fw-semibold" style="font-size:.82rem;">${e.subcategory}</div>
-              <div style="font-size:.7rem;color:var(--text-muted);">${e.payment_method}</div>
+              <div class="fw-semibold" style="font-size:.82rem;">${ssEscapeHtml(e.subcategory)}</div>
+              <div style="font-size:.7rem;color:var(--text-muted);">${ssEscapeHtml(e.payment_method)}</div>
             </td>
             <td class="text-end fw-bold" style="font-size:.85rem;">${fmtINR(e.amount)}</td>
           </tr>`;
@@ -1670,9 +1802,9 @@
         data.emis.forEach(emi => {
           const dateLabel = emi.month || 'EMI';
           html += `<tr>
-            <td style="font-size:.75rem;color:var(--text-muted);">${dateLabel}</td>
+            <td style="font-size:.75rem;color:var(--text-muted);">${ssEscapeHtml(dateLabel)}</td>
             <td>
-              <div class="fw-semibold" style="font-size:.82rem;">${emi.name}</div>
+              <div class="fw-semibold" style="font-size:.82rem;">${ssEscapeHtml(emi.name)}</div>
               <div style="font-size:.7rem;color:var(--text-muted);">Monthly Fixed</div>
             </td>
             <td class="text-end fw-bold" style="font-size:.85rem;">${fmtINR(emi.amount)}</td>
@@ -1684,7 +1816,7 @@
       body.innerHTML = html;
     } catch (err) {
       console.error('Modal Error:', err);
-      body.innerHTML = `<p class="text-center py-4 text-danger">Error: ${err.message}</p>`;
+      body.innerHTML = `<p class="text-center py-4 text-danger">Error: ${ssEscapeHtml(err.message)}</p>`;
     }
   }
 </script>
@@ -1724,7 +1856,7 @@
       <i class="bi bi-x-lg"></i>
     </button>
   </div>
-  
+
   <div class="calc-mode-tabs">
     <button class="calc-mode-btn active" onclick="switchCalcMode('std')" id="btn-mode-std">Std</button>
     <button class="calc-mode-btn" onclick="switchCalcMode('sci')" id="btn-mode-sci">Sci</button>
@@ -1739,7 +1871,7 @@
         <div class="calc-expr" id="calcExpr"></div>
         <div class="calc-result" id="calcResult">0</div>
       </div>
-      
+
       <!-- Standard Grid -->
       <div class="calc-grid" id="stdGrid">
         <button class="calc-btn ac" onclick="calcAction('AC')">AC</button>
@@ -1805,7 +1937,7 @@
           </div>
         </div>
       </div>
-      
+
       <div class="emi-result-box">
         <div class="emi-res-row">
           <span class="emi-res-label">Monthly EMI</span>
@@ -1893,6 +2025,11 @@
       if (window.innerWidth <= 768) closeSidebar();
     });
   });
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}').catch(() => {});
+    });
+  }
 </script>
 
 <script>
@@ -1961,7 +2098,7 @@
         let mathExpr = currentExpr
           .replace(/÷/g, '/').replace(/×/g, '*').replace(/−/g, '-')
           .replace(/sqrt\(/g, 'Math.sqrt(');
-        
+
         let res = eval(mathExpr);
         res = Math.round(res * 1e8) / 1e8;
 
@@ -2005,7 +2142,7 @@
     if (P > 0 && R > 0 && N > 0) {
       const monthlyRate = R / 12 / 100;
       const emi = P * monthlyRate * Math.pow(1 + monthlyRate, N) / (Math.pow(1 + monthlyRate, N) - 1);
-      
+
       const totalPayment = emi * N;
       const totalInterest = totalPayment - P;
 
@@ -2341,6 +2478,7 @@
     const rows = document.querySelectorAll('#modalReviewBody tr');
     const expenses = [];
     const paymentMethod = document.getElementById('modalBulkPayment').value;
+    const accountId = document.getElementById('modalBulkAccount')?.value || '';
     const date = document.getElementById('modalBulkDate').value;
 
     rows.forEach(row => {
@@ -2352,7 +2490,7 @@
       const subSel = row.querySelector('.item-subcategory');
       const subcategory = subSel.value;
       if (subcategory && !isNaN(amt) && amt > 0) {
-        expenses.push({ subcategory, amount: amt, quantity: !isNaN(qty) && qty > 0 ? qty : null, unit, category: cat, payment_method: paymentMethod, date: date, notes: name ? `Scanned: ${name}` : 'Scanned' });
+        expenses.push({ subcategory, amount: amt, quantity: !isNaN(qty) && qty > 0 ? qty : null, unit, category: cat, payment_method: paymentMethod, account_id: accountId, date: date, notes: name ? `Scanned: ${name}` : 'Scanned' });
       }
     });
 
@@ -2361,7 +2499,7 @@
     try {
       const res = await fetch('/add_bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: ssCsrfHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ expenses })
       });
       if (res.ok) window.location.reload();
@@ -2423,7 +2561,7 @@
     try {
       const res  = await fetch('/api/chat', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: ssCsrfHeaders({ 'Content-Type': 'application/json' }),
         body:    JSON.stringify({ message: text }),
       });
       const data = await res.json();
@@ -2508,8 +2646,3 @@
 </script>
 </body>
 </html>
-
-
-
-
-                                                                                                                                                                                                                                                                                                                                                                                

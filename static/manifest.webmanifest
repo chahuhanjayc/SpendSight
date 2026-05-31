@@ -1,0 +1,12 @@
+{
+  "name": "SpendSight",
+  "short_name": "SpendSight",
+  "description": "Personal finance tracker for expenses, budgets, receipts, and net worth.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1A56DB",
+  "categories": ["finance", "productivity"],
+  "icons": []
+}

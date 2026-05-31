@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Envelope Budget - SpendSight{% endblock %}
+{% block page_title %}Envelope Budget{% endblock %}
+
+{% block content %}
+<style>
+  .envelope-metric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    min-height: 96px;
+  }
+  .envelope-label {
+    color: var(--text-muted);
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .envelope-value {
+    color: var(--text-primary);
+    font-size: 1.45rem;
+    font-weight: 850;
+    margin-top: 5px;
+  }
+  .envelope-subtle {
+    color: var(--text-muted);
+    font-size: .78rem;
+  }
+  .envelope-progress {
+    height: 8px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .envelope-progress > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+  .envelope-progress > span.warning { background: var(--warn); }
+  .envelope-progress > span.over,
+  .envelope-progress > span.no-budget { background: var(--danger); }
+  .envelope-amount-input {
+    max-width: 128px;
+    margin-left: auto;
+  }
+</style>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="envelope-metric">
+      <div class="envelope-label">Left to Assign</div>
+      <div class="envelope-value" style="color:{{ 'var(--danger)' if budget.summary.left_to_assign < 0 else 'var(--accent)' }};">
+        {{ format_inr(budget.summary.left_to_assign) }}
+      </div>
+      <div class="envelope-subtle">{{ budget.period.label }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="envelope-metric">
+      <div class="envelope-label">Assigned</div>
+      <div class="envelope-value">{{ format_inr(budget.summary.assigned) }}</div>
+      <div class="envelope-subtle">{{ budget.summary.category_count }} envelopes</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="envelope-metric">
+      <div class="envelope-label">Spent</div>
+      <div class="envelope-value">{{ format_inr(budget.summary.spent) }}</div>
+      <div class="envelope-subtle">{{ budget.period.days_elapsed }} of {{ budget.period.days_total }} days</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="envelope-metric">
+      <div class="envelope-label">Income Pool</div>
+      <div class="envelope-value">{{ format_inr(budget.income.available_to_assign) }}</div>
+      <div class="envelope-subtle">
+        Salary {{ format_inr(budget.income.salary) }}{% if budget.income.extra_income %} + {{ format_inr(budget.income.extra_income) }} extra{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<form method="POST" action="{{ url_for('envelope_budget') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="action" value="save_assignments">
+  <input type="hidden" name="period_key" value="{{ budget.period.key }}">
+
+  <div class="card mb-4">
+    <div class="card-header-custom">
+      <i class="bi bi-wallet2" style="color:var(--brand);"></i>
+      Monthly Envelopes
+      <button class="btn btn-sm btn-brand ms-auto" type="submit">
+        <i class="bi bi-check2-circle"></i> Save Assignments
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th class="text-end">Start</th>
+              <th class="text-end">Assigned</th>
+              <th class="text-end">Spent</th>
+              <th class="text-end">Remaining</th>
+              <th style="min-width:180px;">Progress</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in budget.rows %}
+            <tr>
+              <td>
+                <div class="fw-bold">{{ row.category }}</div>
+                <div class="envelope-subtle">
+                  {{ row.group }}{% if row.rollover %} | rollover{% endif %}{% if row.sinking_fund %} | {{ row.sinking_fund.kind|replace("-", " ")|title }}{% endif %}
+                </div>
+              </td>
+              <td class="text-end">{{ format_inr(row.balance_start) }}</td>
+              <td class="text-end">
+                <input
+                  class="form-control form-control-sm text-end envelope-amount-input"
+                  name="assignment__{{ row.category }}"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value="{{ '%.2f'|format(row.assigned) }}"
+                >
+                {% if row.assignment_source != "monthly-assignment" %}
+                <div class="envelope-subtle">{{ row.assignment_source|replace("-", " ")|title }}</div>
+                {% endif %}
+              </td>
+              <td class="text-end fw-semibold">{{ format_inr(row.spent) }}</td>
+              <td class="text-end fw-bold" style="color:{{ 'var(--danger)' if row.remaining < 0 else 'var(--text-primary)' }};">
+                {{ format_inr(row.remaining) }}
+              </td>
+              <td>
+                <div class="d-flex justify-content-between mb-1 envelope-subtle">
+                  <span>{{ "%.1f"|format(row.pct_spent) }}%</span>
+                  <span>{{ row.transaction_count }} item{{ '' if row.transaction_count == 1 else 's' }}</span>
+                </div>
+                <div class="envelope-progress">
+                  <span class="{{ row.status }}" style="width:{{ [row.pct_spent, 100]|min }}%;"></span>
+                </div>
+              </td>
+              <td>
+                <span class="badge {{ 'bg-danger' if row.status in ['over', 'no-budget'] else ('bg-warning text-dark' if row.status == 'warning' else 'bg-success') }}">
+                  {{ row.status_label }}
+                </span>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="7" class="text-center py-4" style="color:var(--text-muted);">No budget envelopes yet.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-calendar2-check" style="color:var(--accent);"></i>
+        Annual and Irregular Funds
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Fund</th>
+                <th class="text-end">Monthly Set Aside</th>
+                <th class="text-end">Target</th>
+                <th>Due</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in budget.sinking_funds %}
+              <tr>
+                <td>
+                  <div class="fw-bold">{{ row.category }}</div>
+                  <div class="envelope-subtle">{{ row.sinking_fund.kind|replace("-", " ")|title }}</div>
+                </td>
+                <td class="text-end fw-semibold">{{ format_inr(row.sinking_fund_amount) }}</td>
+                <td class="text-end">{{ format_inr(row.sinking_fund.target_amount) }}</td>
+                <td>{{ row.sinking_fund.due_date or "Scheduled" }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="4" class="text-center py-4" style="color:var(--text-muted);">No sinking funds configured.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header-custom">
+        <i class="bi bi-sliders" style="color:var(--warn);"></i>
+        Draft Settings
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('envelope_budget') }}" class="row g-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="save_settings">
+          <div class="col-6">
+            <label class="form-label">Start Month</label>
+            <input class="form-control" name="start_month" type="month" value="{{ budget.config.start_month }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Period</label>
+            <input class="form-control" value="{{ budget.period.key }}" disabled>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="default_rollover" id="defaultRollover" {% if budget.config.default_rollover %}checked{% endif %}>
+              <label class="form-check-label" for="defaultRollover">Default rollover for monthly envelopes</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="rollover_unassigned" id="rolloverUnassigned" {% if budget.config.rollover_unassigned %}checked{% endif %}>
+              <label class="form-check-label" for="rolloverUnassigned">Carry unassigned income forward</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <button class="btn btn-outline-primary w-100" type="submit">
+              <i class="bi bi-save"></i> Save Settings
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

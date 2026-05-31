@@ -23,6 +23,7 @@
     </div>
 
     <form method="POST" action="{{ url_for('edit_bulk_category') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="date_from" value="{{ filters.date_from }}">
       <input type="hidden" name="date_to" value="{{ filters.date_to }}">
       <input type="hidden" name="category" value="{{ filters.category }}">

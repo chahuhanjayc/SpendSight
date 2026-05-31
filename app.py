@@ -5,12 +5,17 @@ Local Flask web app — data stored in user_data/data_<user_id>.json
 Run: python app.py  then open http://localhost:5000
 """
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, session, Response, g
+from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, session, Response, g, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
+import hmac
 import json
 import os
+import re
+import tempfile
 from datetime import date, datetime, timedelta
 from calendar import monthrange
 import uuid
@@ -23,10 +28,18 @@ import urllib.request
 import csv
 import io
 
+from spendsight_store import SQLiteStore, migrate_legacy_json
+from feature_drafts.receipt_ocr import (
+    build_expense_candidate,
+    build_spendsight_receipt_payload,
+    parse_receipt_ocr_text,
+)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 
 # ── Secret key: env var → persistent file → auto-generate ────────────────────
-_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".secret_key")
+_KEY_FILE = os.path.join(BASE_DIR, ".secret_key")
 def _load_secret_key():
     if os.environ.get("SECRET_KEY"):
         return os.environ["SECRET_KEY"]
@@ -41,9 +54,17 @@ def _load_secret_key():
     return key
 
 app.secret_key = _load_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("SPENDSIGHT_COOKIE_SECURE", "").lower() in {"1", "true", "yes"},
+    MAX_CONTENT_LENGTH=10 * 1024 * 1024,
+)
 
-USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.json")
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_data")
+USERS_FILE = os.path.join(BASE_DIR, "users.json")
+DATA_DIR = os.path.join(BASE_DIR, "user_data")
+SQLITE_DB_FILE = os.environ.get("SPENDSIGHT_DB", os.path.join(BASE_DIR, "spendsight.db"))
+_sqlite_store = None
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
@@ -52,6 +73,33 @@ if not os.path.exists(DATA_DIR):
 _login_attempts: dict = {}
 _MAX_ATTEMPTS  = 5          # lock after 5 consecutive failures
 _LOCKOUT_SECS  = 60         # locked for 60 seconds
+
+_SAFE_USER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,40}$")
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+def csrf_token() -> str:
+    token = session.get("_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["_csrf_token"] = token
+    return token
+
+@app.context_processor
+def inject_csrf():
+    return {"csrf_token": csrf_token}
+
+@app.before_request
+def protect_csrf():
+    if request.method not in _CSRF_METHODS:
+        return None
+    expected = session.get("_csrf_token", "")
+    supplied = request.form.get("csrf_token") or request.headers.get("X-CSRFToken", "")
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return None
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({"error": "Invalid or missing CSRF token."}), 400
+    flash("Security token expired. Please try again.", "danger")
+    return redirect(request.referrer or url_for("dashboard" if current_user.is_authenticated else "login"))
 
 def _get_ip() -> str:
     return request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
@@ -94,8 +142,9 @@ def _validate_password_strength(pw: str) -> str | None:
         return "Password must contain at least one symbol (!@#$%^&* etc.)."
     return None
 
-CLOUD_TOKENS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloud_tokens.json")
-REDIRECT_BASE = "http://localhost:5000"
+CLOUD_TOKENS_FILE = os.path.join(BASE_DIR, "cloud_tokens.json")
+REDIRECT_BASE = os.environ.get("SPENDSIGHT_REDIRECT_BASE", "http://localhost:5000").rstrip("/")
+MAX_RESTORE_BYTES = 5 * 1024 * 1024
 
 # ── Developer OAuth credentials (fill these in once after registering your apps) ──
 # Google Drive:  console.cloud.google.com  → OAuth 2.0 → Desktop app
@@ -104,40 +153,166 @@ REDIRECT_BASE = "http://localhost:5000"
 # Redirect URI for all three: http://localhost:5000/cloud/callback/<service>
 CLOUD_CREDENTIALS = {
     "gdrive": {
-        "client_id":     "YOUR_GOOGLE_CLIENT_ID",
-        "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
+        "client_id":     os.environ.get("SPENDSIGHT_GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID"),
+        "client_secret": os.environ.get("SPENDSIGHT_GOOGLE_CLIENT_SECRET", "YOUR_GOOGLE_CLIENT_SECRET"),
     },
     "onedrive": {
-        "client_id": "YOUR_MICROSOFT_CLIENT_ID",
+        "client_id": os.environ.get("SPENDSIGHT_MICROSOFT_CLIENT_ID", "YOUR_MICROSOFT_CLIENT_ID"),
     },
     "dropbox": {
-        "app_key":    "YOUR_DROPBOX_APP_KEY",
-        "app_secret": "YOUR_DROPBOX_APP_SECRET",
+        "app_key":    os.environ.get("SPENDSIGHT_DROPBOX_APP_KEY", "YOUR_DROPBOX_APP_KEY"),
+        "app_secret": os.environ.get("SPENDSIGHT_DROPBOX_APP_SECRET", "YOUR_DROPBOX_APP_SECRET"),
     },
 }
 
+def _atomic_write_json(path, payload, *, default=None):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(path)}.",
+        suffix=".tmp",
+        dir=directory or None,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False, default=default)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+def _timestamp_suffix():
+    return datetime.now().strftime("%Y%m%d%H%M%S%f")
+
+def _quarantine_corrupt_json(path):
+    if not os.path.exists(path):
+        return None
+    quarantine_path = f"{path}.{_timestamp_suffix()}.corrupt"
+    os.replace(path, quarantine_path)
+    return quarantine_path
+
+def _load_json_or_default(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError:
+        _quarantine_corrupt_json(path)
+        return default
+
+def _cloud_credentials_configured(service):
+    creds = CLOUD_CREDENTIALS.get(service, {})
+    return bool(creds) and all(value and not str(value).startswith("YOUR_") for value in creds.values())
+
+def _storage_mode():
+    mode = os.environ.get("SPENDSIGHT_STORAGE", "json").strip().lower()
+    return mode if mode in {"json", "sqlite", "dual"} else "json"
+
+def _sqlite_active():
+    return _storage_mode() in {"sqlite", "dual"}
+
+def _get_sqlite_store():
+    global _sqlite_store
+    if _sqlite_store is None:
+        should_seed = not os.path.exists(SQLITE_DB_FILE) and (
+            os.path.exists(USERS_FILE)
+            or any(name.startswith("data_") and name.endswith(".json") for name in os.listdir(DATA_DIR))
+        )
+        if should_seed:
+            _sqlite_store = migrate_legacy_json(BASE_DIR, SQLITE_DB_FILE)
+        else:
+            _sqlite_store = SQLiteStore(SQLITE_DB_FILE)
+    return _sqlite_store
+
+def get_current_data_user_id():
+    user_id = current_user.id if current_user.is_authenticated else "admin"
+    if current_user.is_authenticated and current_user.role == "admin":
+        user_id = session.get("view_user_id", current_user.id)
+    return user_id
+
+def get_cloud_tokens_user_id():
+    return current_user.id if current_user.is_authenticated else "admin"
+
+def get_cloud_tokens_file():
+    if current_user.is_authenticated:
+        safe_user_id = re.sub(r"[^A-Za-z0-9_-]", "_", current_user.id)
+        return os.path.join(DATA_DIR, f"cloud_tokens_{safe_user_id}.json")
+    return CLOUD_TOKENS_FILE
+
+def _is_viewing_own_data():
+    if not current_user.is_authenticated:
+        return False
+    return session.get("view_user_id", current_user.id) == current_user.id
+
+def _own_data_required_for_cloud():
+    if _is_viewing_own_data():
+        return None
+    flash("Switch back to your own data before using cloud backup or restore.", "danger")
+    return redirect(url_for("settings") + "#cloud-backup")
+
+def _read_limited_response(response, max_bytes=MAX_RESTORE_BYTES):
+    content = response.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValueError(f"Backup file is too large. Maximum supported size is {max_bytes // (1024 * 1024)} MB.")
+    return content
+
 def load_cloud_tokens():
-    if not os.path.exists(CLOUD_TOKENS_FILE):
-        return {}
-    with open(CLOUD_TOKENS_FILE) as f:
-        return json.load(f)
+    if _storage_mode() == "sqlite":
+        tokens = _get_sqlite_store().load_cloud_tokens(get_cloud_tokens_user_id())
+        return tokens if isinstance(tokens, dict) else {}
+    tokens = _load_json_or_default(get_cloud_tokens_file(), {})
+    return tokens if isinstance(tokens, dict) else {}
 
 def save_cloud_tokens(tokens):
-    with open(CLOUD_TOKENS_FILE, "w") as f:
-        json.dump(tokens, f, indent=2)
+    if _storage_mode() in {"json", "dual"}:
+        _atomic_write_json(get_cloud_tokens_file(), tokens)
+    if _sqlite_active():
+        _get_sqlite_store().save_cloud_tokens(get_cloud_tokens_user_id(), tokens)
 
 
 def _is_hashed(pw: str) -> bool:
     """Return True if the password string is already a werkzeug hash."""
     return pw.startswith(("pbkdf2:", "scrypt:", "argon2:"))
 
+def _initial_users():
+    admin_id = os.environ.get("SPENDSIGHT_ADMIN_USER", "admin").strip() or "admin"
+    admin_pw = os.environ.get("SPENDSIGHT_ADMIN_PASSWORD", "").strip()
+    if not _SAFE_USER_ID_RE.fullmatch(admin_id):
+        admin_id = "admin"
+    if not admin_pw:
+        admin_pw = secrets.token_urlsafe(18)
+        print(
+            "SpendSight first-run admin password generated. "
+            f"Username: {admin_id} Password: {admin_pw}",
+            flush=True,
+        )
+    return [{"id": admin_id, "password": generate_password_hash(admin_pw), "role": "admin"}]
+
 def load_users():
-    if not os.path.exists(USERS_FILE):
-        users = [{"id": "admin", "password": generate_password_hash("admin123"), "role": "admin"}]
+    if _storage_mode() == "sqlite":
+        users = _get_sqlite_store().load_users()
+        if not users:
+            users = _initial_users()
+            save_users(users)
+            return users
+    elif not os.path.exists(USERS_FILE):
+        users = _initial_users()
         save_users(users)
         return users
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        users = json.load(f)
+    else:
+        users = _load_json_or_default(USERS_FILE, None)
+    if not isinstance(users, list) or not users:
+        users = _initial_users()
+        save_users(users)
+        return users
     # ── Migrate any plaintext passwords to hashed on first load ──────────────
     migrated = False
     for u in users:
@@ -149,8 +324,10 @@ def load_users():
     return users
 
 def save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=2, ensure_ascii=False)
+    if _storage_mode() in {"json", "dual"}:
+        _atomic_write_json(USERS_FILE, users)
+    if _sqlite_active():
+        _get_sqlite_store().save_users(users)
 
 def render_spendsight_template(template_name, **kwargs):
     # Inject user info for admin to switch views
@@ -171,10 +348,7 @@ def render_spendsight_template(template_name, **kwargs):
                            **kwargs)
 
 def get_current_data_file():
-    user_id = current_user.id if current_user.is_authenticated else "admin"
-    if current_user.is_authenticated and current_user.role == "admin":
-        user_id = session.get("view_user_id", current_user.id)
-    return os.path.join(DATA_DIR, f"data_{user_id}.json")
+    return os.path.join(DATA_DIR, f"data_{get_current_data_user_id()}.json")
 
 # ── Login Configuration ───────────────────────────────────────────────────────
 
@@ -238,7 +412,7 @@ def login():
 
     return render_template("login.html")
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()
@@ -263,6 +437,11 @@ def admin_add_user():
     if not username or not password:
         flash("Username and password are required.", "danger")
         return redirect(url_for("admin_dashboard"))
+    if not _SAFE_USER_ID_RE.fullmatch(username):
+        flash("Username must be 3-40 characters and use only letters, numbers, underscores, or hyphens.", "danger")
+        return redirect(url_for("admin_dashboard"))
+    if role not in {"admin", "user"}:
+        role = "user"
 
     pw_error = _validate_password_strength(password)
     if pw_error:
@@ -401,23 +580,148 @@ CURRENCIES = [
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
+def _default_data():
+    return {
+        "expenses": [],
+        "templates": [],
+        "custom_categories": {},
+        "payment_methods": list(DEFAULT_PAYMENT_METHODS),
+        "billing_start_day": 1,
+        "income": {"monthly_salary": 0, "salary_history": []},
+        "extra_income": [],
+        "fixed_expenses": [],
+        "recurring_payments": [],
+        "currency_code": "INR",
+        "budget_limits": {},
+        "goals": [],
+        "transaction_rules": [],
+        "accounts": [],
+        "net_worth_snapshots": [],
+        "budget_envelopes": [],
+        "receipts": [],
+        "schema_version": 3,
+    }
+
+def _normalize_data(d):
+    if not isinstance(d, dict):
+        raise ValueError("SpendSight data must be a JSON object.")
+
+    defaults = _default_data()
+    for key, value in defaults.items():
+        d.setdefault(key, value)
+
+    for key in (
+        "expenses",
+        "templates",
+        "extra_income",
+        "fixed_expenses",
+        "recurring_payments",
+        "goals",
+        "transaction_rules",
+        "accounts",
+        "net_worth_snapshots",
+        "budget_envelopes",
+        "receipts",
+    ):
+        if not isinstance(d.get(key), list):
+            d[key] = []
+        else:
+            d[key] = [item for item in d[key] if isinstance(item, dict)]
+    for key in ("custom_categories", "budget_limits"):
+        if not isinstance(d.get(key), dict):
+            d[key] = {}
+    if not isinstance(d.get("income"), dict):
+        d["income"] = {"monthly_salary": 0, "salary_history": []}
+    if not isinstance(d.get("payment_methods"), list) or not d["payment_methods"]:
+        d["payment_methods"] = list(DEFAULT_PAYMENT_METHODS)
+
+    for e in d["expenses"]:
+        if isinstance(e, dict):
+            e.setdefault("quantity", None)
+            e.setdefault("unit", "")
+            e.setdefault("review_status", "reviewed")
+            e.setdefault("source", "manual")
+            e.setdefault("account_id", "")
+
+    for account in d["accounts"]:
+        account.setdefault("id", str(uuid.uuid4()))
+        account.setdefault("name", "Account")
+        account.setdefault("type", "cash")
+        account.setdefault("balance", 0.0)
+        account.setdefault("currency_code", d.get("currency_code", "INR"))
+        account.setdefault("include_in_net_worth", True)
+        account.setdefault("is_archived", False)
+
+    for envelope in d["budget_envelopes"]:
+        envelope.setdefault("id", str(uuid.uuid4()))
+        envelope.setdefault("month", date.today().strftime("%Y-%m"))
+        envelope.setdefault("category", "Other")
+        envelope.setdefault("assigned", 0.0)
+        envelope.setdefault("annual_amount", 0.0)
+        envelope.setdefault("rollover_enabled", True)
+
+    for receipt in d["receipts"]:
+        receipt.setdefault("id", str(uuid.uuid4()))
+        receipt.setdefault("status", "needs_review")
+
+    income = d.get("income", {"monthly_salary": 0, "salary_history": []})
+    if "salary_history" not in income or not isinstance(income.get("salary_history"), list):
+        try:
+            sal = float(income.get("monthly_salary", 0))
+        except (ValueError, TypeError):
+            sal = 0
+        if sal > 0:
+            effective = income.get("salary_updated", date.today().isoformat())
+            income["salary_history"] = [{"amount": round(sal, 2), "effective_from": effective, "added_on": effective}]
+        else:
+            income["salary_history"] = []
+        d["income"] = income
+    return d
+
+def _validate_restore_data(d):
+    if not isinstance(d, dict):
+        raise ValueError("Backup JSON must be an object.")
+    for key in (
+        "expenses",
+        "templates",
+        "extra_income",
+        "fixed_expenses",
+        "recurring_payments",
+        "goals",
+        "transaction_rules",
+        "accounts",
+        "net_worth_snapshots",
+        "budget_envelopes",
+        "receipts",
+    ):
+        if key in d and not isinstance(d[key], list):
+            raise ValueError(f"Backup field '{key}' must be a list.")
+        for idx, item in enumerate(d.get(key, []), start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"Backup field '{key}' item #{idx} must be an object.")
+    for key in ("custom_categories", "budget_limits", "income"):
+        if key in d and not isinstance(d[key], dict):
+            raise ValueError(f"Backup field '{key}' must be an object.")
+    for idx, expense in enumerate(d.get("expenses", []), start=1):
+        if "amount" in expense:
+            float(expense["amount"])
+        if "date" in expense:
+            date.fromisoformat(str(expense["date"]))
+    return _normalize_data(d)
+
 def load_data():
+    if _storage_mode() == "sqlite":
+        data = _get_sqlite_store().load_user_data(get_current_data_user_id())
+        if not data:
+            data = _default_data()
+            save_data(data)
+        return _normalize_data(data)
+
     data_file = get_current_data_file()
     if not os.path.exists(data_file):
-        data = {
-            "expenses": [],
-            "templates": [],
-            "custom_categories": {},
-            "payment_methods": DEFAULT_PAYMENT_METHODS,
-            "billing_start_day": 1,
-            "income": {"monthly_salary": 0, "salary_history": []},
-            "extra_income": [],
-            "fixed_expenses": [],
-            "recurring_payments": [],
-            "budget_limits": {},
-        }
+        data = _default_data()
         # Special migration for admin: if old expenses.json exists, move it to data_admin.json
-        old_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "expenses.json")
+        old_file = os.path.join(BASE_DIR, "expenses.json")
         if "data_admin.json" in data_file and os.path.exists(old_file):
              with open(old_file, "r", encoding="utf-8") as f:
                  old_data = json.load(f)
@@ -428,41 +732,20 @@ def load_data():
              save_data(data)
         return data
 
-    with open(data_file, "r", encoding="utf-8") as f:
-        d = json.load(f)
-
-    d.setdefault("expenses", [])
-    d.setdefault("templates", [])
-    d.setdefault("custom_categories", {})
-    d.setdefault("payment_methods", DEFAULT_PAYMENT_METHODS)
-    d.setdefault("billing_start_day", 1)
-    d.setdefault("income", {"monthly_salary": 0, "salary_history": []})
-    d.setdefault("extra_income", [])
-    d.setdefault("fixed_expenses", [])
-    d.setdefault("recurring_payments", [])
-    d.setdefault("currency_code", "INR")
-    d.setdefault("budget_limits", {})
-
-    for e in d["expenses"]:
-        e.setdefault("quantity", None)
-        e.setdefault("unit", "")
-
-    # Ensure salary history migration
-    income = d.get("income", {"monthly_salary": 0, "salary_history": []})
-    if "salary_history" not in income:
-        sal = float(income.get("monthly_salary", 0))
-        if sal > 0:
-            effective = income.get("salary_updated", date.today().isoformat())
-            income["salary_history"] = [{"amount": round(sal, 2), "effective_from": effective, "added_on": effective}]
-        else:
-            income["salary_history"] = []
-        d["income"] = income
-    return d
+    d = _load_json_or_default(data_file, None)
+    if d is None:
+        data = _default_data()
+        save_data(data)
+        return data
+    return _normalize_data(d)
 
 def save_data(data):
-    data_file = get_current_data_file()
-    with open(data_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+    normalized = _normalize_data(data)
+    if _storage_mode() in {"json", "dual"}:
+        data_file = get_current_data_file()
+        _atomic_write_json(data_file, normalized, default=str)
+    if _sqlite_active():
+        _get_sqlite_store().save_user_data(get_current_data_user_id(), normalized)
 
 def get_salary_for_date(income_data, target_date):
     history = income_data.get("salary_history", [])
@@ -488,6 +771,51 @@ def get_all_categories(data):
     for cat in sorted(cats.keys(), key=str.casefold):
         sorted_cats[cat] = sorted({s for s in cats[cat] if s}, key=str.casefold)
     return sorted_cats
+
+def get_account_options(data, include_archived=False):
+    accounts = []
+    for account in data.get("accounts", []):
+        if account.get("is_archived") and not include_archived:
+            continue
+        accounts.append({
+            "id": account.get("id", ""),
+            "name": account.get("name", "Account"),
+            "type": account.get("type", "other"),
+            "institution": account.get("institution", ""),
+            "balance": _money(account.get("balance", 0)) if "_money" in globals() else account.get("balance", 0),
+        })
+    return sorted(accounts, key=lambda a: (a["type"], a["name"].casefold()))
+
+def find_account_for_payment_method(data, payment_method):
+    payment_key = str(payment_method or "").strip().casefold()
+    if not payment_key:
+        return None
+    for account in data.get("accounts", []):
+        labels = [
+            account.get("id", ""),
+            account.get("name", ""),
+            account.get("institution", ""),
+        ]
+        if any(str(label).strip().casefold() == payment_key for label in labels if label):
+            return account
+    return None
+
+def apply_account_selection(expense, data, account_id="", payment_method=""):
+    account_id = str(account_id or "").strip()
+    account = next((a for a in data.get("accounts", []) if a.get("id") == account_id), None)
+    if not account and payment_method:
+        account = find_account_for_payment_method(data, payment_method)
+    if account:
+        expense["account_id"] = account.get("id", "")
+        expense["payment_method"] = account.get("name", payment_method or "Account")
+    else:
+        expense["account_id"] = account_id if account_id else expense.get("account_id", "")
+        expense["payment_method"] = payment_method or expense.get("payment_method") or "Cash"
+
+    pms = data.setdefault("payment_methods", list(DEFAULT_PAYMENT_METHODS))
+    if expense["payment_method"] and expense["payment_method"] not in pms:
+        pms.append(expense["payment_method"])
+    return expense
 
 def today_str():
     return date.today().isoformat()
@@ -649,6 +977,14 @@ def get_billing_period(billing_start_day=1):
             start = today.replace(month=today.month - 1, day=day)
         end = today.replace(day=day) - timedelta(days=1)
     return start, end
+
+
+def add_months(src_date, months=1):
+    month = src_date.month - 1 + months
+    year = src_date.year + month // 12
+    month = month % 12 + 1
+    day = min(src_date.day, monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def billing_period_label(bsd):
@@ -920,8 +1256,10 @@ def add_expense():
         categories = get_all_categories(data)
         try:
             amt = float(request.form.get("amount", 0))
+            if amt <= 0:
+                raise ValueError
         except ValueError:
-            flash("Invalid amount.", "danger")
+            flash("Please enter a valid positive amount.", "danger")
             return redirect(url_for("dashboard"))
 
         category    = request.form.get("category", "").strip()
@@ -933,6 +1271,7 @@ def add_expense():
         new_sub     = request.form.get("new_subcategory", "").strip()
         date_str    = request.form.get("date", today_str())
         pm          = request.form.get("payment_method", "Cash")
+        account_id  = request.form.get("account_id", "").strip()
         notes       = request.form.get("notes", "").strip()
         quantity    = parse_quantity_value(request.form.get("quantity", ""))
         unit        = clean_unit_value(request.form.get("unit", ""))
@@ -957,75 +1296,18 @@ def add_expense():
             "notes":          notes,
             "quantity":       quantity,
             "unit":           unit,
+            "source":         "manual",
+            "review_status":  "reviewed",
             "created_at":     datetime.now().isoformat(),
         }
+        apply_account_selection(expense, data, account_id, pm)
+        apply_transaction_rules(expense, data)
         data["expenses"].append(expense)
         save_data(data)
         flash(f"✓ {g.currency_symbol}{amt:.0f} added", "success")
         return redirect(url_for("dashboard"))
 
     return redirect(url_for("dashboard"))
-
-    if request.method == "POST":
-        try:
-            amt = float(request.form.get("amount", "").replace(",", "").strip())
-            if amt <= 0:
-                raise ValueError
-        except ValueError:
-            flash("Please enter a valid positive amount.", "danger")
-            return redirect(url_for("add_expense"))
-
-        category    = request.form.get("category", "").strip()
-        subcategory = request.form.get("subcategory", "").strip()
-        new_sub     = request.form.get("new_subcategory", "").strip()
-
-        # Handle new custom subcategory
-        if new_sub:
-            subcategory = new_sub
-            cc = data.setdefault("custom_categories", {})
-            cc.setdefault(category, [])
-            if new_sub not in cc[category]:
-                cc[category].append(new_sub)
-
-        expense = {
-            "id":             str(uuid.uuid4()),
-            "amount":         round(amt, 2),
-            "category":       category,
-            "subcategory":    subcategory,
-            "date":           request.form.get("date", today_str()),
-            "payment_method": request.form.get("payment_method", "Cash"),
-            "notes":          request.form.get("notes", "").strip(),
-            "created_at":     datetime.now().isoformat(),
-        }
-        data["expenses"].append(expense)
-
-        # Save as quick template if requested
-        if request.form.get("save_as_template"):
-            tname = request.form.get("template_name", subcategory).strip() or subcategory
-            data.setdefault("templates", []).append({
-                "id":             str(uuid.uuid4()),
-                "name":           tname,
-                "category":       category,
-                "subcategory":    subcategory,
-                "amount":         round(amt, 2),
-                "payment_method": expense["payment_method"],
-            })
-
-        save_data(data)
-        symbol = getattr(g, "currency_symbol", "₹")
-        flash(f"✓ {symbol}{amt:.0f} added — {subcategory or category}", "success")
-
-        if request.form.get("add_another"):
-            return redirect(url_for("add_expense"))
-        return redirect(url_for("dashboard"))
-
-    return render_spendsight_template(
-        "add_expense.html",
-        categories=categories,
-        payment_methods=data.get("payment_methods", DEFAULT_PAYMENT_METHODS),
-        today=today_str(),
-        category_colors=CATEGORY_COLORS,
-    )
 
 @app.route("/add_bulk", methods=["POST"])
 @login_required
@@ -1063,11 +1345,16 @@ def add_bulk():
                 "subcategory":    subcategory,
                 "date":           item.get("date", today_str()),
                 "payment_method": item.get("payment_method", "Cash"),
+                "account_id":      item.get("account_id", ""),
                 "notes":          item.get("notes", "Scanned"),
                 "quantity":       parse_quantity_value(item.get("quantity")),
                 "unit":           clean_unit_value(item.get("unit", "")),
+                "source":         item.get("source", "ocr_bulk"),
+                "review_status":  item.get("review_status", "needs_review"),
                 "created_at":     datetime.now().isoformat(),
             }
+            apply_account_selection(expense, data, item.get("account_id", ""), item.get("payment_method", "Cash"))
+            apply_transaction_rules(expense, data)
             data["expenses"].append(expense)
             count += 1
             total_amt += amt
@@ -1117,8 +1404,11 @@ def view_expenses():
     if per_page == "all":
         per_page_val = total_count if total_count > 0 else 50
     else:
-        try:    per_page_val = int(per_page)
-        except: per_page_val = 50
+        try:
+            per_page_val = int(per_page)
+            per_page_val = max(1, min(per_page_val, 500))
+        except (ValueError, TypeError):
+            per_page_val = 50
 
     start_idx          = (page - 1) * per_page_val
     paginated_expenses = filtered[start_idx : start_idx + per_page_val]
@@ -1307,7 +1597,12 @@ def edit_expense(expense_id):
         expense["category"]       = category
         expense["subcategory"]    = subcategory
         expense["date"]           = request.form.get("date", today_str())
-        expense["payment_method"] = request.form.get("payment_method", "Cash")
+        apply_account_selection(
+            expense,
+            data,
+            request.form.get("account_id", "").strip(),
+            request.form.get("payment_method", "Cash"),
+        )
         expense["notes"]          = request.form.get("notes", "").strip()
         expense["quantity"]       = parse_quantity_value(request.form.get("quantity", ""))
         expense["unit"]           = clean_unit_value(request.form.get("unit", ""))
@@ -1321,6 +1616,7 @@ def edit_expense(expense_id):
         expense=expense,
         categories=categories,
         payment_methods=data.get("payment_methods", DEFAULT_PAYMENT_METHODS),
+        accounts=get_account_options(data),
         category_colors=CATEGORY_COLORS,
     )
 
@@ -1696,7 +1992,7 @@ def add_template():
     return redirect(url_for("manage_templates"))
 
 
-@app.route("/add-from-template/<template_id>")
+@app.route("/add-from-template/<template_id>", methods=["POST"])
 @login_required
 def add_from_template(template_id):
     data = load_data()
@@ -1712,6 +2008,8 @@ def add_from_template(template_id):
         "date":           today_str(),
         "payment_method": tmpl["payment_method"],
         "notes":          f"Quick add: {tmpl['name']}",
+        "source":         "template",
+        "review_status":  "reviewed",
         "created_at":     datetime.now().isoformat(),
     }
     data["expenses"].append(expense)
@@ -1814,6 +2112,1297 @@ def edit_emi(eid):
         categories=categories,
         pm_list=pm_list,
     )
+
+
+@app.route("/planning", methods=["GET", "POST"])
+@login_required
+def planning():
+    data = load_data()
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        goals = data.setdefault("goals", [])
+        if action == "add_goal":
+            try:
+                target = float(request.form.get("target_amount", "0").replace(",", "").strip())
+                current = float(request.form.get("current_amount", "0").replace(",", "").strip() or 0)
+                monthly = float(request.form.get("monthly_contribution", "0").replace(",", "").strip() or 0)
+                if target <= 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash("Enter a valid target amount for the goal.", "danger")
+                return redirect(url_for("planning"))
+            goals.append({
+                "id": str(uuid.uuid4()),
+                "name": request.form.get("name", "").strip() or "New Goal",
+                "target_amount": round(target, 2),
+                "current_amount": round(max(current, 0), 2),
+                "monthly_contribution": round(max(monthly, 0), 2),
+                "priority": request.form.get("priority", "medium"),
+                "notes": request.form.get("notes", "").strip(),
+            })
+            save_data(data)
+            flash("Goal added.", "success")
+        elif action == "update_goal":
+            gid = request.form.get("goal_id", "")
+            goal = next((g for g in goals if g.get("id") == gid), None)
+            if not goal:
+                flash("Goal not found.", "danger")
+                return redirect(url_for("planning"))
+            try:
+                goal["current_amount"] = round(max(float(request.form.get("current_amount", "0").replace(",", "")), 0), 2)
+                goal["monthly_contribution"] = round(max(float(request.form.get("monthly_contribution", "0").replace(",", "")), 0), 2)
+                target_raw = request.form.get("target_amount", "").replace(",", "").strip()
+                if target_raw:
+                    goal["target_amount"] = round(max(float(target_raw), 0), 2)
+            except (ValueError, TypeError):
+                flash("Goal update has an invalid amount.", "danger")
+                return redirect(url_for("planning"))
+            goal["name"] = request.form.get("name", goal.get("name", "Goal")).strip() or "Goal"
+            goal["priority"] = request.form.get("priority", goal.get("priority", "medium"))
+            goal["notes"] = request.form.get("notes", goal.get("notes", "")).strip()
+            save_data(data)
+            flash("Goal updated.", "success")
+        return redirect(url_for("planning"))
+
+    goals_summary = get_goals_summary(data)
+    subscriptions = build_subscription_insights(data)
+    return render_spendsight_template(
+        "planning.html",
+        goals_summary=goals_summary,
+        subscriptions=subscriptions,
+    )
+
+@app.route("/planning/goals/delete/<goal_id>", methods=["POST"])
+@login_required
+def delete_goal(goal_id):
+    data = load_data()
+    before = len(data.get("goals", []))
+    data["goals"] = [goal for goal in data.get("goals", []) if goal.get("id") != goal_id]
+    save_data(data)
+    flash("Goal deleted." if len(data["goals"]) < before else "Goal not found.", "info")
+    return redirect(url_for("planning"))
+
+
+@app.route("/recurring-calendar")
+@login_required
+def recurring_calendar():
+    data = load_data()
+    month = request.args.get("month") or date.today().strftime("%Y-%m")
+    calendar = build_recurring_calendar(data, month)
+    return render_spendsight_template("recurring_calendar.html", calendar=calendar, selected_month=calendar["month"])
+
+
+@app.route("/rules", methods=["GET", "POST"])
+@login_required
+def rules():
+    data = load_data()
+    if request.method == "POST":
+        try:
+            min_amount_raw = request.form.get("min_amount", "").replace(",", "").strip()
+            max_amount_raw = request.form.get("max_amount", "").replace(",", "").strip()
+            min_amount = round(float(min_amount_raw), 2) if min_amount_raw else ""
+            max_amount = round(float(max_amount_raw), 2) if max_amount_raw else ""
+        except (ValueError, TypeError):
+            flash("Rule amount filters must be valid numbers.", "danger")
+            return redirect(url_for("rules"))
+
+        name = request.form.get("name", "").strip()
+        match_text = request.form.get("match_text", "").strip()
+        set_category = request.form.get("set_category", "").strip()
+        set_subcategory = request.form.get("set_subcategory", "").strip()
+        set_payment_method = request.form.get("set_payment_method", "").strip()
+        if not match_text and min_amount == "" and max_amount == "":
+            flash("Add at least one match condition.", "danger")
+            return redirect(url_for("rules"))
+        if not any([set_category, set_subcategory, set_payment_method]):
+            flash("Add at least one rule action.", "danger")
+            return redirect(url_for("rules"))
+
+        if set_category:
+            data.setdefault("custom_categories", {}).setdefault(set_category, [])
+            if set_subcategory:
+                subs = data["custom_categories"].setdefault(set_category, [])
+                if set_subcategory not in subs:
+                    subs.append(set_subcategory)
+        if set_payment_method:
+            pms = data.setdefault("payment_methods", list(DEFAULT_PAYMENT_METHODS))
+            if set_payment_method not in pms:
+                pms.append(set_payment_method)
+
+        data.setdefault("transaction_rules", []).append({
+            "id": str(uuid.uuid4()),
+            "name": name or match_text or "Rule",
+            "match_text": match_text,
+            "min_amount": min_amount,
+            "max_amount": max_amount,
+            "set_category": set_category,
+            "set_subcategory": set_subcategory,
+            "set_payment_method": set_payment_method,
+            "enabled": True,
+            "created_at": datetime.now().isoformat(),
+        })
+        save_data(data)
+        flash("Rule added. It will apply to new expenses.", "success")
+        return redirect(url_for("rules"))
+
+    return render_spendsight_template(
+        "rules.html",
+        rules=data.get("transaction_rules", []),
+        categories=get_all_categories(data),
+        payment_methods=data.get("payment_methods", DEFAULT_PAYMENT_METHODS),
+    )
+
+@app.route("/rules/delete/<rule_id>", methods=["POST"])
+@login_required
+def delete_rule(rule_id):
+    data = load_data()
+    before = len(data.get("transaction_rules", []))
+    data["transaction_rules"] = [rule for rule in data.get("transaction_rules", []) if rule.get("id") != rule_id]
+    save_data(data)
+    flash("Rule deleted." if len(data["transaction_rules"]) < before else "Rule not found.", "info")
+    return redirect(url_for("rules"))
+
+
+@app.route("/import/csv", methods=["GET", "POST"])
+@login_required
+def import_csv():
+    data = load_data()
+    result = None
+    if request.method == "POST":
+        upload = request.files.get("csv_file")
+        if not upload or not upload.filename:
+            flash("Choose a CSV file to import.", "danger")
+            return redirect(url_for("import_csv"))
+        try:
+            csv_text = upload.read().decode("utf-8-sig")
+            result = parse_expense_csv(csv_text, data)
+        except Exception as exc:
+            flash(f"CSV import failed: {exc}", "danger")
+            return redirect(url_for("import_csv"))
+        if result["expenses"]:
+            data["expenses"].extend(result["expenses"])
+            save_data(data)
+            flash(f"Imported {result['imported_count']} expense{'s' if result['imported_count'] != 1 else ''}.", "success")
+        else:
+            flash("No new expenses were imported.", "info")
+
+    return render_spendsight_template(
+        "import_csv.html",
+        result=result,
+        rules=data.get("transaction_rules", []),
+    )
+
+
+@app.route("/accounts", methods=["GET", "POST"])
+@login_required
+def accounts():
+    data = load_data()
+    if request.method == "POST":
+        action = request.form.get("action", "save_account")
+        accounts_list = data.setdefault("accounts", [])
+        if action == "save_account":
+            account_id = request.form.get("account_id", "").strip()
+            try:
+                balance = float(request.form.get("balance", "0").replace(",", "").strip() or 0)
+            except (ValueError, TypeError):
+                flash("Enter a valid account balance.", "danger")
+                return redirect(url_for("accounts"))
+
+            account_type = request.form.get("type", "cash").strip()
+            if account_type not in {"cash", "bank", "credit_card", "loan", "investment", "wallet", "asset", "other"}:
+                account_type = "other"
+
+            payload = {
+                "name": request.form.get("name", "").strip() or "Account",
+                "type": account_type,
+                "institution": request.form.get("institution", "").strip(),
+                "balance": round(balance, 2),
+                "currency_code": data.get("currency_code", "INR"),
+                "include_in_net_worth": request.form.get("include_in_net_worth") == "on",
+                "is_archived": request.form.get("is_archived") == "on",
+                "notes": request.form.get("notes", "").strip(),
+                "updated_at": datetime.now().isoformat(),
+            }
+            existing = next((a for a in accounts_list if a.get("id") == account_id), None)
+            if existing:
+                existing.update(payload)
+                flash("Account updated.", "success")
+            else:
+                payload.update({"id": str(uuid.uuid4()), "created_at": datetime.now().isoformat()})
+                accounts_list.append(payload)
+                flash("Account added.", "success")
+            save_data(data)
+        elif action == "snapshot":
+            snapshot = build_net_worth_snapshot(data)
+            data.setdefault("net_worth_snapshots", []).append(snapshot)
+            save_data(data)
+            flash("Net worth snapshot saved.", "success")
+        return redirect(url_for("accounts"))
+
+    summary = build_accounts_summary(data)
+    return render_spendsight_template(
+        "accounts.html",
+        accounts=summary["accounts"],
+        summary=summary,
+        snapshots=summary["snapshots"],
+    )
+
+
+@app.route("/accounts/delete/<account_id>", methods=["POST"])
+@login_required
+def delete_account(account_id):
+    data = load_data()
+    before = len(data.get("accounts", []))
+    data["accounts"] = [a for a in data.get("accounts", []) if a.get("id") != account_id]
+    save_data(data)
+    flash("Account deleted." if len(data["accounts"]) < before else "Account not found.", "info")
+    return redirect(url_for("accounts"))
+
+
+@app.route("/budget", methods=["GET", "POST"])
+@login_required
+def budget():
+    data = load_data()
+    month = request.values.get("month") or date.today().strftime("%Y-%m")
+    if request.method == "POST":
+        action = request.form.get("action", "save_envelope")
+        envelopes = data.setdefault("budget_envelopes", [])
+        if action == "save_envelope":
+            category = request.form.get("category", "").strip()
+            new_category = request.form.get("new_category", "").strip()
+            if category == "__new__" and new_category:
+                category = new_category
+                data.setdefault("custom_categories", {}).setdefault(category, [])
+            if not category:
+                flash("Choose a category for the envelope.", "danger")
+                return redirect(url_for("budget", month=month))
+            try:
+                assigned = float(request.form.get("assigned", "0").replace(",", "").strip() or 0)
+                annual_amount = float(request.form.get("annual_amount", "0").replace(",", "").strip() or 0)
+            except (ValueError, TypeError):
+                flash("Envelope amounts must be valid numbers.", "danger")
+                return redirect(url_for("budget", month=month))
+            envelope_id = request.form.get("envelope_id", "").strip()
+            payload = {
+                "month": request.form.get("month", month),
+                "category": category,
+                "assigned": round(max(assigned, 0), 2),
+                "annual_amount": round(max(annual_amount, 0), 2),
+                "rollover_enabled": request.form.get("rollover_enabled") == "on",
+                "notes": request.form.get("notes", "").strip(),
+                "updated_at": datetime.now().isoformat(),
+            }
+            existing = next((e for e in envelopes if e.get("id") == envelope_id), None)
+            if existing:
+                existing.update(payload)
+                flash("Budget envelope updated.", "success")
+            else:
+                payload.update({"id": str(uuid.uuid4()), "created_at": datetime.now().isoformat()})
+                envelopes.append(payload)
+                flash("Budget envelope added.", "success")
+            save_data(data)
+        return redirect(url_for("budget", month=request.form.get("month", month)))
+
+    budget_summary = build_envelope_budget(data, month)
+    return render_spendsight_template(
+        "budget.html",
+        budget=budget_summary,
+        categories=get_all_categories(data),
+        selected_month=budget_summary["month"],
+    )
+
+
+@app.route("/budget/delete/<envelope_id>", methods=["POST"])
+@login_required
+def delete_budget_envelope(envelope_id):
+    data = load_data()
+    month = request.form.get("month") or date.today().strftime("%Y-%m")
+    before = len(data.get("budget_envelopes", []))
+    data["budget_envelopes"] = [e for e in data.get("budget_envelopes", []) if e.get("id") != envelope_id]
+    save_data(data)
+    flash("Budget envelope deleted." if len(data["budget_envelopes"]) < before else "Budget envelope not found.", "info")
+    return redirect(url_for("budget", month=month))
+
+
+@app.route("/review", methods=["GET", "POST"])
+@login_required
+def review_inbox():
+    data = load_data()
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        selected = set(request.form.getlist("expense_id"))
+        if action == "approve_all":
+            selected = {e.get("id") for e in data.get("expenses", []) if e.get("review_status") == "needs_review"}
+        if not selected:
+            flash("Select at least one transaction.", "info")
+            return redirect(url_for("review_inbox"))
+        changed = 0
+        if action in {"approve_selected", "approve_all"}:
+            for expense in data.get("expenses", []):
+                if expense.get("id") in selected:
+                    expense["review_status"] = "reviewed"
+                    expense["reviewed_at"] = datetime.now().isoformat()
+                    changed += 1
+            flash(f"Approved {changed} transaction{'s' if changed != 1 else ''}.", "success")
+        elif action == "delete_selected":
+            before = len(data.get("expenses", []))
+            data["expenses"] = [e for e in data.get("expenses", []) if e.get("id") not in selected]
+            changed = before - len(data["expenses"])
+            flash(f"Deleted {changed} transaction{'s' if changed != 1 else ''}.", "info")
+        save_data(data)
+        return redirect(url_for("review_inbox"))
+
+    inbox = build_review_inbox(data)
+    return render_spendsight_template(
+        "review.html",
+        inbox=inbox,
+        categories=get_all_categories(data),
+        payment_methods=data.get("payment_methods", DEFAULT_PAYMENT_METHODS),
+        accounts=get_account_options(data),
+    )
+
+
+@app.route("/review/update/<expense_id>", methods=["POST"])
+@login_required
+def update_review_expense(expense_id):
+    data = load_data()
+    expense = next((e for e in data.get("expenses", []) if e.get("id") == expense_id), None)
+    if not expense:
+        flash("Transaction not found.", "danger")
+        return redirect(url_for("review_inbox"))
+    try:
+        amount = float(request.form.get("amount", "0").replace(",", "").strip())
+        if amount <= 0:
+            raise ValueError
+        date.fromisoformat(request.form.get("date", ""))
+    except (ValueError, TypeError):
+        flash("Review update has an invalid amount or date.", "danger")
+        return redirect(url_for("review_inbox"))
+
+    expense.update({
+        "amount": round(amount, 2),
+        "date": request.form.get("date", today_str()),
+        "category": request.form.get("category", expense.get("category", "Other")).strip() or "Other",
+        "subcategory": request.form.get("subcategory", "").strip() or request.form.get("category", "Other").strip() or "Other",
+        "notes": request.form.get("notes", "").strip(),
+        "updated_at": datetime.now().isoformat(),
+    })
+    apply_account_selection(
+        expense,
+        data,
+        request.form.get("account_id", "").strip(),
+        request.form.get("payment_method", expense.get("payment_method", "Cash")).strip() or "Cash",
+    )
+    if request.form.get("mark_reviewed") == "on":
+        expense["review_status"] = "reviewed"
+        expense["reviewed_at"] = datetime.now().isoformat()
+    save_data(data)
+    flash("Transaction updated.", "success")
+    return redirect(url_for("review_inbox"))
+
+
+@app.route("/receipts", methods=["GET", "POST"])
+@login_required
+def receipts():
+    data = load_data()
+    if request.method == "POST":
+        upload = request.files.get("receipt_file")
+        if not upload or not upload.filename:
+            flash("Choose a receipt file.", "danger")
+            return redirect(url_for("receipts"))
+        filename = secure_filename(upload.filename)
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in {".jpg", ".jpeg", ".png", ".webp", ".pdf", ".txt"}:
+            flash("Supported receipt formats are JPG, PNG, WEBP, PDF, or TXT.", "danger")
+            return redirect(url_for("receipts"))
+        receipt_id = str(uuid.uuid4())
+        stored_name = f"{receipt_id}{ext}"
+        receipts_dir = get_receipts_dir()
+        os.makedirs(receipts_dir, exist_ok=True)
+        upload.save(os.path.join(receipts_dir, stored_name))
+
+        ocr_text = request.form.get("ocr_text", "").strip()
+        if ocr_text:
+            receipt_payload = build_spendsight_receipt_payload(
+                ocr_text,
+                data,
+                receipt_id=receipt_id,
+                original_filename=filename,
+                stored_filename=stored_name,
+                content_type=upload.mimetype,
+                uploaded_at=datetime.now().isoformat(),
+                default_currency_code=data.get("currency_code", "INR"),
+            )
+            extracted = receipt_payload["extracted"]
+        else:
+            extracted = {
+                "merchant": "",
+                "date": "",
+                "amount": None,
+                "category": "Other",
+                "subcategory": "Other",
+                "payment_method": "Cash",
+                "currency_code": data.get("currency_code", "INR"),
+                "notes": "Receipt upload",
+                "ocr_text": "",
+                "confidence": {"overall": 0.0},
+                "duplicate_matches": [],
+            }
+            receipt_payload = {
+                "id": receipt_id,
+                "original_filename": filename,
+                "stored_filename": stored_name,
+                "content_type": upload.mimetype,
+                "uploaded_at": datetime.now().isoformat(),
+                "status": "needs_review",
+                "extracted": extracted,
+                "expense_id": "",
+            }
+
+        for field in ("merchant", "date", "category", "notes"):
+            value = request.form.get(field, "").strip()
+            if value:
+                extracted[field] = value
+        amount_override = request.form.get("amount", "").strip()
+        if amount_override:
+            extracted["amount"] = amount_override
+        if extracted.get("merchant"):
+            extracted["subcategory"] = extracted.get("merchant")
+
+        data.setdefault("receipts", []).append(receipt_payload)
+        save_data(data)
+        flash("Receipt uploaded for review.", "success")
+        return redirect(url_for("receipts"))
+
+    receipt_summary = build_receipt_summary(data)
+    return render_spendsight_template(
+        "receipts.html",
+        receipt_summary=receipt_summary,
+        categories=get_all_categories(data),
+        payment_methods=data.get("payment_methods", DEFAULT_PAYMENT_METHODS),
+        accounts=get_account_options(data),
+    )
+
+
+@app.route("/receipts/file/<receipt_id>")
+@login_required
+def receipt_file(receipt_id):
+    data = load_data()
+    receipt = next((r for r in data.get("receipts", []) if r.get("id") == receipt_id), None)
+    if not receipt:
+        flash("Receipt not found.", "danger")
+        return redirect(url_for("receipts"))
+    return send_from_directory(get_receipts_dir(), receipt.get("stored_filename", ""), as_attachment=False)
+
+
+@app.route("/receipts/create-expense/<receipt_id>", methods=["POST"])
+@login_required
+def create_expense_from_receipt(receipt_id):
+    data = load_data()
+    receipt = next((r for r in data.get("receipts", []) if r.get("id") == receipt_id), None)
+    if not receipt:
+        flash("Receipt not found.", "danger")
+        return redirect(url_for("receipts"))
+    extracted = receipt.get("extracted", {})
+    try:
+        amount = float(str(request.form.get("amount") or extracted.get("amount") or "0").replace(",", "").strip())
+        if amount <= 0:
+            raise ValueError
+        tx_date = request.form.get("date") or extracted.get("date") or today_str()
+        date.fromisoformat(tx_date)
+    except (ValueError, TypeError):
+        flash("Receipt needs a valid amount and date before creating an expense.", "danger")
+        return redirect(url_for("receipts"))
+
+    expense = build_expense_candidate(extracted, expense_id=str(uuid.uuid4()), now=datetime.now().isoformat())
+    category = request.form.get("category", extracted.get("category") or expense.get("category") or "Other").strip() or "Other"
+    subcategory = request.form.get("subcategory", extracted.get("merchant") or expense.get("subcategory") or category).strip() or category
+    expense.update({
+        "amount": round(amount, 2),
+        "category": category,
+        "subcategory": subcategory,
+        "date": tx_date,
+        "payment_method": request.form.get("payment_method", expense.get("payment_method", "Cash")).strip() or "Cash",
+        "account_id": request.form.get("account_id", "").strip(),
+        "notes": request.form.get("notes", extracted.get("notes") or f"Receipt: {receipt.get('original_filename', '')}").strip(),
+        "receipt_id": receipt_id,
+    })
+    apply_account_selection(expense, data, expense.get("account_id", ""), expense.get("payment_method", "Cash"))
+    apply_transaction_rules(expense, data)
+    data.setdefault("expenses", []).append(expense)
+    receipt["expense_id"] = expense["id"]
+    receipt["status"] = "expense_created"
+    save_data(data)
+    flash("Expense created from receipt and sent to review.", "success")
+    return redirect(url_for("review_inbox"))
+
+
+@app.route("/receipts/delete/<receipt_id>", methods=["POST"])
+@login_required
+def delete_receipt(receipt_id):
+    data = load_data()
+    receipt = next((r for r in data.get("receipts", []) if r.get("id") == receipt_id), None)
+    if receipt:
+        try:
+            os.remove(os.path.join(get_receipts_dir(), receipt.get("stored_filename", "")))
+        except OSError:
+            pass
+    before = len(data.get("receipts", []))
+    data["receipts"] = [r for r in data.get("receipts", []) if r.get("id") != receipt_id]
+    save_data(data)
+    flash("Receipt deleted." if len(data["receipts"]) < before else "Receipt not found.", "info")
+    return redirect(url_for("receipts"))
+
+
+# ── Planning helpers: goals and recurring/subscription intelligence ──────────
+
+def _expense_merchant_key(expense):
+    sub = str(expense.get("subcategory") or "").strip()
+    notes = str(expense.get("notes") or "").strip()
+    cat = str(expense.get("category") or "Other").strip()
+    label = sub or notes or cat
+    label = re.sub(r"\s+", " ", label)
+    return label or "Unknown"
+
+def apply_transaction_rules(expense, data):
+    rules = data.get("transaction_rules", [])
+    applied = []
+    searchable = " ".join(
+        str(expense.get(field, "")) for field in ("notes", "subcategory", "category", "payment_method")
+    ).casefold()
+    try:
+        amount = float(expense.get("amount", 0))
+    except (ValueError, TypeError):
+        amount = 0.0
+
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        match_text = str(rule.get("match_text", "")).strip().casefold()
+        if match_text and match_text not in searchable:
+            continue
+        try:
+            min_amount = rule.get("min_amount", "")
+            max_amount = rule.get("max_amount", "")
+            if min_amount not in ("", None) and amount < float(min_amount):
+                continue
+            if max_amount not in ("", None) and amount > float(max_amount):
+                continue
+        except (ValueError, TypeError):
+            continue
+
+        set_category = str(rule.get("set_category", "")).strip()
+        set_subcategory = str(rule.get("set_subcategory", "")).strip()
+        set_payment_method = str(rule.get("set_payment_method", "")).strip()
+        if set_category:
+            expense["category"] = set_category
+            data.setdefault("custom_categories", {}).setdefault(set_category, [])
+        if set_subcategory:
+            expense["subcategory"] = set_subcategory
+            if set_category:
+                subs = data.setdefault("custom_categories", {}).setdefault(set_category, [])
+                if set_subcategory not in subs:
+                    subs.append(set_subcategory)
+        if set_payment_method:
+            expense["payment_method"] = set_payment_method
+            matched_account = find_account_for_payment_method(data, set_payment_method)
+            if matched_account:
+                expense["account_id"] = matched_account.get("id", "")
+        applied.append(rule.get("name") or match_text or "Rule")
+
+    if applied:
+        expense["rules_applied"] = applied
+    return expense
+
+def _csv_value(row, *names):
+    lowered = {str(k).strip().casefold(): v for k, v in row.items()}
+    for name in names:
+        if name.casefold() in lowered:
+            return str(lowered[name.casefold()] or "").strip()
+    return ""
+
+def _normalize_import_date(raw):
+    raw = str(raw or "").strip()
+    if not raw:
+        return today_str()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return date.fromisoformat(raw).isoformat()
+
+def parse_expense_csv(csv_text, data):
+    reader = csv.DictReader(io.StringIO(csv_text))
+    if not reader.fieldnames:
+        raise ValueError("CSV must include a header row.")
+
+    existing_keys = {
+        (
+            str(e.get("date", "")),
+            round(float(e.get("amount", 0) or 0), 2),
+            str(e.get("subcategory", "")).casefold(),
+            str(e.get("notes", "")).casefold(),
+        )
+        for e in data.get("expenses", [])
+    }
+    imported, skipped = [], []
+    for row_no, row in enumerate(reader, start=2):
+        try:
+            amount_raw = _csv_value(row, "amount", "debit", "withdrawal", "value")
+            amount = abs(float(amount_raw.replace(",", "")))
+            if amount <= 0:
+                raise ValueError
+            tx_date = _normalize_import_date(_csv_value(row, "date", "transaction date", "posted date"))
+        except (ValueError, TypeError):
+            skipped.append({"row": row_no, "reason": "Invalid date or amount"})
+            continue
+
+        category = _csv_value(row, "category") or "Other"
+        subcategory = _csv_value(row, "subcategory", "merchant", "description", "payee") or category
+        notes = _csv_value(row, "notes", "memo", "description", "merchant")
+        payment_method = _csv_value(row, "payment_method", "payment method", "account") or "Imported"
+        account_id = _csv_value(row, "account_id", "account id")
+        expense = {
+            "id": str(uuid.uuid4()),
+            "amount": round(amount, 2),
+            "category": category,
+            "subcategory": subcategory,
+            "date": tx_date,
+            "payment_method": payment_method,
+            "account_id": account_id,
+            "notes": notes,
+            "quantity": None,
+            "unit": "",
+            "created_at": datetime.now().isoformat(),
+            "source": "csv_import",
+            "review_status": "needs_review",
+        }
+        apply_account_selection(expense, data, account_id, payment_method)
+        apply_transaction_rules(expense, data)
+        key = (
+            tx_date,
+            round(amount, 2),
+            str(expense.get("subcategory", "")).casefold(),
+            str(expense.get("notes", "")).casefold(),
+        )
+        if key in existing_keys:
+            skipped.append({"row": row_no, "reason": "Duplicate"})
+            continue
+        existing_keys.add(key)
+        imported.append(expense)
+    return {"expenses": imported, "skipped": skipped, "imported_count": len(imported), "skipped_count": len(skipped)}
+
+
+def _money(value, default=0.0):
+    try:
+        return round(float(str(value).replace(",", "").strip()), 2)
+    except (ValueError, TypeError):
+        return default
+
+
+def _month_start(month):
+    return datetime.strptime(month, "%Y-%m").date().replace(day=1)
+
+
+def _month_key(d):
+    if hasattr(d, "strftime"):
+        return d.strftime("%Y-%m")
+    return str(d or "")[:7]
+
+
+def _view_user_id():
+    if not current_user.is_authenticated:
+        return "admin"
+    if current_user.role == "admin":
+        return session.get("view_user_id", current_user.id)
+    return current_user.id
+
+
+def get_receipts_dir():
+    safe_user_id = re.sub(r"[^A-Za-z0-9_-]", "_", _view_user_id())
+    return os.path.join(DATA_DIR, f"receipts_{safe_user_id}")
+
+
+def _account_bucket(account):
+    account_type = str(account.get("type", "other")).strip().lower()
+    if account_type in {"credit_card", "loan"}:
+        return "liability"
+    return "asset"
+
+
+def build_net_worth_snapshot(data, ref_today=None):
+    ref_today = ref_today or date.today()
+    assets = 0.0
+    liabilities = 0.0
+    for account in data.get("accounts", []):
+        if not account.get("include_in_net_worth", True) or account.get("is_archived"):
+            continue
+        balance = _money(account.get("balance"))
+        if _account_bucket(account) == "liability":
+            liabilities += abs(balance)
+        else:
+            assets += balance
+    return {
+        "id": str(uuid.uuid4()),
+        "date": ref_today.isoformat(),
+        "assets": round(assets, 2),
+        "liabilities": round(liabilities, 2),
+        "net_worth": round(assets - liabilities, 2),
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+def build_accounts_summary(data, ref_today=None):
+    ref_today = ref_today or date.today()
+    accounts = []
+    assets = liabilities = excluded = 0.0
+    for account in data.get("accounts", []):
+        balance = _money(account.get("balance"))
+        bucket = _account_bucket(account)
+        included = bool(account.get("include_in_net_worth", True)) and not account.get("is_archived")
+        if included and bucket == "liability":
+            liabilities += abs(balance)
+        elif included:
+            assets += balance
+        else:
+            excluded += balance
+        accounts.append({
+            **account,
+            "balance": balance,
+            "bucket": bucket,
+            "included": included,
+        })
+
+    snapshots = sorted(
+        data.get("net_worth_snapshots", []),
+        key=lambda s: (s.get("date", ""), s.get("created_at", "")),
+        reverse=True,
+    )
+    latest_snapshot = snapshots[0] if snapshots else None
+    current = {
+        "date": ref_today.isoformat(),
+        "assets": round(assets, 2),
+        "liabilities": round(liabilities, 2),
+        "net_worth": round(assets - liabilities, 2),
+    }
+    delta = None
+    if latest_snapshot:
+        delta = round(current["net_worth"] - _money(latest_snapshot.get("net_worth")), 2)
+    return {
+        "accounts": sorted(accounts, key=lambda a: (a.get("is_archived", False), a.get("type", ""), a.get("name", "").casefold())),
+        "assets": current["assets"],
+        "liabilities": current["liabilities"],
+        "net_worth": current["net_worth"],
+        "excluded_balance": round(excluded, 2),
+        "account_count": len(accounts),
+        "active_account_count": sum(1 for a in accounts if not a.get("is_archived")),
+        "snapshots": snapshots[:12],
+        "latest_snapshot": latest_snapshot,
+        "net_worth_delta_since_snapshot": delta,
+    }
+
+
+def _expense_duplicate_key(expense):
+    merchant = _expense_merchant_key(expense).casefold()
+    return (
+        str(expense.get("date", "")),
+        round(_money(expense.get("amount")), 2),
+        merchant,
+    )
+
+
+def build_review_inbox(data):
+    expenses = data.get("expenses", [])
+    duplicate_counts = defaultdict(int)
+    for expense in expenses:
+        duplicate_counts[_expense_duplicate_key(expense)] += 1
+    pending = []
+    for expense in expenses:
+        if expense.get("review_status", "reviewed") != "needs_review":
+            continue
+        duplicate_count = max(0, duplicate_counts[_expense_duplicate_key(expense)] - 1)
+        pending.append({
+            **expense,
+            "duplicate_count": duplicate_count,
+            "is_duplicate_candidate": duplicate_count > 0,
+        })
+    pending.sort(key=lambda e: (e.get("date", ""), e.get("created_at", "")), reverse=True)
+    return {
+        "pending": pending,
+        "pending_count": len(pending),
+        "duplicate_count": sum(1 for e in pending if e["is_duplicate_candidate"]),
+        "total_amount": round(sum(_money(e.get("amount")) for e in pending), 2),
+        "sources": sorted({e.get("source", "unknown") for e in pending}),
+    }
+
+
+def _month_expense_totals(data):
+    totals = defaultdict(lambda: defaultdict(float))
+    for expense in data.get("expenses", []):
+        month = _month_key(expense.get("date"))
+        if len(month) != 7:
+            continue
+        category = str(expense.get("category") or "Other")
+        totals[month][category] += _money(expense.get("amount"))
+    return totals
+
+
+def _fixed_due_for_month(data, month):
+    first = _month_start(month)
+    total = 0.0
+    for item in data.get("fixed_expenses", []):
+        try:
+            if is_emi_active_in_month(item, first.year, first.month):
+                total += _money(item.get("amount"))
+        except Exception:
+            continue
+    return round(total, 2)
+
+
+def build_envelope_budget(data, month=None):
+    month = month or date.today().strftime("%Y-%m")
+    try:
+        month_start = _month_start(month)
+    except ValueError:
+        month = date.today().strftime("%Y-%m")
+        month_start = _month_start(month)
+
+    expense_totals = _month_expense_totals(data)
+    envelopes = data.get("budget_envelopes", [])
+    categories = set(DEFAULT_CATEGORIES.keys())
+    categories.update(data.get("custom_categories", {}).keys())
+    categories.update(expense_totals.get(month, {}).keys())
+    categories.update(data.get("budget_limits", {}).keys())
+    categories.update(e.get("category", "Other") for e in envelopes)
+
+    current_by_category = {}
+    for envelope in envelopes:
+        if envelope.get("month") == month:
+            current_by_category[envelope.get("category", "Other")] = envelope
+
+    rows = []
+    assigned_total = 0.0
+    spent_total = 0.0
+    rollover_total = 0.0
+    for category in sorted(categories, key=str.casefold):
+        envelope = current_by_category.get(category, {})
+        fallback_limit = _money(data.get("budget_limits", {}).get(category, 0))
+        assigned = _money(envelope.get("assigned", fallback_limit))
+        annual_amount = _money(envelope.get("annual_amount", 0))
+        annual_monthly = round(annual_amount / 12, 2) if annual_amount else 0.0
+        rollover = 0.0
+        if envelope.get("rollover_enabled", True):
+            for past in envelopes:
+                if past.get("category") != category:
+                    continue
+                past_month = past.get("month", "")
+                if not past.get("rollover_enabled", True) or not past_month or past_month >= month:
+                    continue
+                past_available = _money(past.get("assigned")) + round(_money(past.get("annual_amount")) / 12, 2)
+                rollover += past_available - expense_totals.get(past_month, {}).get(category, 0.0)
+        spent = round(expense_totals.get(month, {}).get(category, 0.0), 2)
+        available = round(assigned + annual_monthly + rollover, 2)
+        remaining = round(available - spent, 2)
+        if not envelope and not assigned and not spent and not annual_monthly:
+            continue
+        assigned_total += assigned + annual_monthly
+        spent_total += spent
+        rollover_total += rollover
+        progress_pct = round((spent / available) * 100, 1) if available > 0 else (100.0 if spent > 0 else 0.0)
+        if remaining < 0:
+            status = "over"
+        elif available and remaining <= max(available * 0.15, 250):
+            status = "watch"
+        else:
+            status = "ok"
+        rows.append({
+            "id": envelope.get("id", ""),
+            "category": category,
+            "assigned": round(assigned, 2),
+            "annual_amount": round(annual_amount, 2),
+            "annual_monthly": annual_monthly,
+            "rollover_enabled": envelope.get("rollover_enabled", True),
+            "rollover": round(rollover, 2),
+            "available": available,
+            "spent": spent,
+            "remaining": remaining,
+            "progress_pct": progress_pct,
+            "status": status,
+            "notes": envelope.get("notes", ""),
+        })
+
+    monthly_income = get_salary_for_date(data.get("income", {}), month_start)
+    monthly_income += get_month_extra_income(data.get("extra_income", []), month_start.year, month_start.month)
+    fixed_due = _fixed_due_for_month(data, month)
+    goals_due = sum(_money(goal.get("monthly_contribution")) for goal in data.get("goals", []))
+    left_to_assign = round(monthly_income - fixed_due - goals_due - assigned_total, 2)
+    safe_to_spend = round(monthly_income - fixed_due - goals_due - spent_total, 2)
+    return {
+        "month": month,
+        "rows": rows,
+        "row_count": len(rows),
+        "monthly_income": round(monthly_income, 2),
+        "fixed_due": fixed_due,
+        "goals_due": round(goals_due, 2),
+        "assigned_total": round(assigned_total, 2),
+        "spent_total": round(spent_total, 2),
+        "available_total": round(sum(row["available"] for row in rows), 2),
+        "remaining_total": round(sum(row["remaining"] for row in rows), 2),
+        "rollover_total": round(rollover_total, 2),
+        "left_to_assign": left_to_assign,
+        "safe_to_spend": safe_to_spend,
+        "over_count": sum(1 for row in rows if row["status"] == "over"),
+        "watch_count": sum(1 for row in rows if row["status"] == "watch"),
+    }
+
+
+def build_receipt_summary(data):
+    receipts = []
+    expenses_by_receipt = {e.get("receipt_id"): e for e in data.get("expenses", []) if e.get("receipt_id")}
+    duplicate_keys = defaultdict(int)
+    for expense in data.get("expenses", []):
+        duplicate_keys[_expense_duplicate_key(expense)] += 1
+    for receipt in data.get("receipts", []):
+        extracted = receipt.get("extracted", {})
+        candidate = {
+            "date": extracted.get("date", ""),
+            "amount": extracted.get("amount", ""),
+            "subcategory": extracted.get("merchant", ""),
+            "notes": extracted.get("merchant", ""),
+        }
+        duplicate_count = duplicate_keys.get(_expense_duplicate_key(candidate), 0)
+        receipts.append({
+            **receipt,
+            "linked_expense": expenses_by_receipt.get(receipt.get("id")),
+            "duplicate_count": duplicate_count,
+            "is_duplicate_candidate": duplicate_count > 0,
+        })
+    receipts.sort(key=lambda r: r.get("uploaded_at", ""), reverse=True)
+    return {
+        "receipts": receipts,
+        "receipt_count": len(receipts),
+        "needs_review_count": sum(1 for r in receipts if r.get("status") == "needs_review"),
+        "linked_count": sum(1 for r in receipts if r.get("expense_id")),
+        "duplicate_count": sum(1 for r in receipts if r.get("is_duplicate_candidate")),
+    }
+
+
+def _same_month(date_value, month):
+    return str(date_value or "").startswith(month)
+
+
+def _recurring_payment_match(data, item_name, due_on, amount, category="", payment_method=""):
+    due_month = due_on.strftime("%Y-%m")
+    name_key = str(item_name or "").casefold()
+    category_key = str(category or "").casefold()
+    payment_key = str(payment_method or "").casefold()
+    for expense in data.get("expenses", []):
+        if not _same_month(expense.get("date"), due_month):
+            continue
+        if abs(_money(expense.get("amount")) - _money(amount)) > max(5.0, _money(amount) * 0.05):
+            continue
+        text = " ".join(str(expense.get(field, "")) for field in ("subcategory", "notes", "category", "payment_method")).casefold()
+        if name_key and name_key in text:
+            return expense
+        if category_key and category_key == str(expense.get("category", "")).casefold():
+            return expense
+        if payment_key and payment_key == str(expense.get("payment_method", "")).casefold():
+            return expense
+    return None
+
+
+def _calendar_status(due_on, paid_expense, ref_today):
+    if paid_expense:
+        return "paid"
+    if due_on < ref_today:
+        return "overdue"
+    if due_on <= ref_today + timedelta(days=7):
+        return "due_soon"
+    return "upcoming"
+
+
+def _append_calendar_item(items, data, *, item_id, name, amount, due_on, source, category="", payment_method="", ref_today=None, metadata=None):
+    ref_today = ref_today or date.today()
+    amount = _money(amount)
+    paid_expense = _recurring_payment_match(data, name, due_on, amount, category, payment_method)
+    status = _calendar_status(due_on, paid_expense, ref_today)
+    items.append({
+        "id": item_id,
+        "name": name or "Recurring item",
+        "amount": amount,
+        "due_on": due_on.isoformat(),
+        "day": due_on.day,
+        "source": source,
+        "category": category or "Other",
+        "payment_method": payment_method or "",
+        "status": status,
+        "is_paid": bool(paid_expense),
+        "paid_expense_id": paid_expense.get("id", "") if paid_expense else "",
+        "metadata": metadata or {},
+    })
+
+
+def build_recurring_calendar(data, month=None, ref_today=None):
+    ref_today = ref_today or date.today()
+    month = month or ref_today.strftime("%Y-%m")
+    try:
+        start = _month_start(month)
+    except ValueError:
+        month = ref_today.strftime("%Y-%m")
+        start = _month_start(month)
+    end = date(start.year, start.month, monthrange(start.year, start.month)[1])
+
+    items = []
+    for fixed in data.get("fixed_expenses", []):
+        if not is_emi_active_in_month(fixed, start.year, start.month):
+            continue
+        day = int(fixed.get("day_of_month") or 1)
+        due_on = date(start.year, start.month, min(max(day, 1), monthrange(start.year, start.month)[1]))
+        _append_calendar_item(
+            items,
+            data,
+            item_id=f"fixed:{fixed.get('id', fixed.get('name', ''))}",
+            name=fixed.get("name", "Fixed Expense"),
+            amount=fixed.get("amount", 0),
+            due_on=due_on,
+            source="emi" if fixed.get("type") == "emi" else "fixed",
+            category=fixed.get("category", "EMI / Finance"),
+            payment_method=fixed.get("payment_method", ""),
+            ref_today=ref_today,
+            metadata={
+                "frequency": fixed.get("frequency", "monthly"),
+                "months_left": get_emi_status(fixed, ref_today).get("months_left"),
+            },
+        )
+
+    subscription_insights = build_subscription_insights(data, ref_today=ref_today)
+    for subscription in subscription_insights.get("subscriptions", []):
+        due_on = None
+        try:
+            last_seen = date.fromisoformat(subscription.get("last_seen", subscription.get("next_due_on", "")))
+            due_on = add_months(last_seen, 1)
+            while due_on < start:
+                due_on = add_months(due_on, 1)
+        except (ValueError, TypeError):
+            try:
+                due_on = date.fromisoformat(subscription.get("next_due_on", ""))
+            except (ValueError, TypeError):
+                due_on = None
+        if not due_on or not (start <= due_on <= end):
+            continue
+        _append_calendar_item(
+            items,
+            data,
+            item_id=f"subscription:{subscription.get('name', '')}",
+            name=subscription.get("name", "Subscription"),
+            amount=subscription.get("latest_amount", 0),
+            due_on=due_on,
+            source="subscription",
+            category=subscription.get("category", "Other"),
+            payment_method=subscription.get("payment_method", ""),
+            ref_today=ref_today,
+            metadata={
+                "confidence": subscription.get("confidence"),
+                "price_change": subscription.get("price_change"),
+            },
+        )
+
+    for goal in data.get("goals", []):
+        monthly = _money(goal.get("monthly_contribution"))
+        if monthly <= 0:
+            continue
+        _append_calendar_item(
+            items,
+            data,
+            item_id=f"goal:{goal.get('id', goal.get('name', ''))}",
+            name=f"{goal.get('name', 'Goal')} contribution",
+            amount=monthly,
+            due_on=start,
+            source="goal",
+            category="Savings",
+            payment_method="",
+            ref_today=ref_today,
+            metadata={"priority": goal.get("priority", "medium")},
+        )
+
+    for item in data.get("recurring_payments", []):
+        amount = _money(item.get("amount"))
+        if amount <= 0:
+            continue
+        day = int(item.get("day_of_month") or item.get("day") or 1)
+        due_on = date(start.year, start.month, min(max(day, 1), monthrange(start.year, start.month)[1]))
+        _append_calendar_item(
+            items,
+            data,
+            item_id=f"recurring:{item.get('id', item.get('name', ''))}",
+            name=item.get("name", item.get("description", "Recurring Payment")),
+            amount=amount,
+            due_on=due_on,
+            source="recurring",
+            category=item.get("category", "Other"),
+            payment_method=item.get("payment_method", ""),
+            ref_today=ref_today,
+            metadata={"frequency": item.get("frequency", "monthly")},
+        )
+
+    items.sort(key=lambda item: (item["due_on"], item["source"], item["name"].casefold()))
+    income = get_salary_for_date(data.get("income", {}), start)
+    income += get_month_extra_income(data.get("extra_income", []), start.year, start.month)
+    total_due = round(sum(item["amount"] for item in items), 2)
+    paid_total = round(sum(item["amount"] for item in items if item["is_paid"]), 2)
+    unpaid_total = round(total_due - paid_total, 2)
+    next_7_total = round(
+        sum(
+            item["amount"]
+            for item in items
+            if not item["is_paid"] and ref_today <= date.fromisoformat(item["due_on"]) <= ref_today + timedelta(days=7)
+        ),
+        2,
+    )
+    days = defaultdict(list)
+    for item in items:
+        days[item["day"]].append(item)
+    return {
+        "month": month,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "items": items,
+        "days": [{"day": day, "items": days.get(day, [])} for day in range(1, end.day + 1)],
+        "income": round(income, 2),
+        "total_due": total_due,
+        "paid_total": paid_total,
+        "unpaid_total": unpaid_total,
+        "next_7_days_total": next_7_total,
+        "cash_after_all": round(income - total_due, 2),
+        "cash_after_unpaid": round(income - unpaid_total, 2),
+        "paid_count": sum(1 for item in items if item["is_paid"]),
+        "overdue_count": sum(1 for item in items if item["status"] == "overdue"),
+        "due_soon_count": sum(1 for item in items if item["status"] == "due_soon"),
+        "item_count": len(items),
+    }
+
+
+def _price_change_for_amounts(amounts):
+    if len(amounts) < 2:
+        return None
+    latest = round(float(amounts[-1]), 2)
+    previous = None
+    for amount in reversed(amounts[:-1]):
+        amount = round(float(amount), 2)
+        if amount != latest:
+            previous = amount
+            break
+    if previous is None:
+        return None
+    delta = round(latest - previous, 2)
+    return {
+        "from_amount": previous,
+        "to_amount": latest,
+        "delta": abs(delta),
+        "direction": "increase" if delta > 0 else "decrease",
+    }
+
+def build_subscription_insights(data, ref_today=None):
+    ref_today = ref_today or date.today()
+    grouped = defaultdict(list)
+    for expense in data.get("expenses", []):
+        try:
+            amount = float(expense.get("amount", 0))
+            if amount <= 0:
+                continue
+            tx_date = date.fromisoformat(str(expense.get("date", "")))
+        except (ValueError, TypeError):
+            continue
+        key = _expense_merchant_key(expense)
+        grouped[key.casefold()].append({**expense, "_date": tx_date, "_amount": round(amount, 2), "_name": key})
+
+    subscriptions = []
+    for rows in grouped.values():
+        rows.sort(key=lambda item: item["_date"])
+        months_seen = {(row["_date"].year, row["_date"].month) for row in rows}
+        if len(rows) < 3 or len(months_seen) < 3:
+            continue
+        gaps = [(rows[i]["_date"] - rows[i - 1]["_date"]).days for i in range(1, len(rows))]
+        monthly_gaps = [gap for gap in gaps if 25 <= gap <= 35]
+        if len(monthly_gaps) < max(2, len(gaps) - 1):
+            continue
+
+        latest = rows[-1]
+        amounts = [row["_amount"] for row in rows]
+        next_due = add_months(latest["_date"], 1)
+        while next_due < ref_today:
+            next_due = add_months(next_due, 1)
+        item = {
+            "name": latest["_name"],
+            "category": latest.get("category", "Other"),
+            "subcategory": latest.get("subcategory", latest["_name"]),
+            "payment_method": latest.get("payment_method", ""),
+            "cadence": "monthly",
+            "occurrences": len(rows),
+            "latest_amount": latest["_amount"],
+            "average_amount": round(sum(amounts) / len(amounts), 2),
+            "first_seen": rows[0]["_date"].isoformat(),
+            "last_seen": latest["_date"].isoformat(),
+            "next_due_on": next_due.isoformat(),
+            "confidence": round(min(0.98, 0.55 + (len(monthly_gaps) * 0.12)), 2),
+        }
+        price_change = _price_change_for_amounts(amounts)
+        if price_change:
+            item["price_change"] = price_change
+        subscriptions.append(item)
+
+    subscriptions.sort(key=lambda item: (item["next_due_on"], -item["latest_amount"]))
+    return {
+        "subscriptions": subscriptions,
+        "count": len(subscriptions),
+        "monthly_total": round(sum(item["latest_amount"] for item in subscriptions), 2),
+        "next_30_days_total": round(
+            sum(
+                item["latest_amount"] for item in subscriptions
+                if date.fromisoformat(item["next_due_on"]) <= ref_today + timedelta(days=30)
+            ),
+            2,
+        ),
+    }
+
+def get_goals_summary(data, ref_today=None):
+    ref_today = ref_today or date.today()
+    goals = []
+    for goal in data.get("goals", []):
+        try:
+            target = max(0.0, float(goal.get("target_amount", 0)))
+            current = max(0.0, float(goal.get("current_amount", 0)))
+            monthly = max(0.0, float(goal.get("monthly_contribution", 0)))
+        except (ValueError, TypeError):
+            continue
+        remaining = max(target - current, 0.0)
+        months_to_target = 0 if remaining <= 0 else (int((remaining + monthly - 0.01) // monthly) if monthly > 0 else None)
+        projected_date = add_months(ref_today, months_to_target).isoformat() if months_to_target is not None else ""
+        goals.append({
+            "id": goal.get("id", str(uuid.uuid4())),
+            "name": goal.get("name", "Goal"),
+            "target_amount": round(target, 2),
+            "current_amount": round(current, 2),
+            "monthly_contribution": round(monthly, 2),
+            "remaining_amount": round(remaining, 2),
+            "progress_pct": round((current / target * 100) if target else 0, 1),
+            "months_to_target": months_to_target,
+            "projected_date": projected_date,
+            "priority": goal.get("priority", "medium"),
+            "notes": goal.get("notes", ""),
+        })
+    total_target = round(sum(goal["target_amount"] for goal in goals), 2)
+    total_current = round(sum(goal["current_amount"] for goal in goals), 2)
+    total_monthly = round(sum(goal["monthly_contribution"] for goal in goals), 2)
+    return {
+        "goals": goals,
+        "total_target": total_target,
+        "total_current": total_current,
+        "total_monthly_contribution": total_monthly,
+        "overall_progress_pct": round((total_current / total_target * 100) if total_target else 0, 1),
+        "remaining_total": round(max(total_target - total_current, 0), 2),
+    }
 
 
 # ── Budget helpers ────────────────────────────────────────────────────────────
@@ -1938,10 +3527,11 @@ def get_smart_insights(data):
 
     if biggest_jump and biggest_jump[3] >= 25:
         cat, c, p, pct = biggest_jump
+        cat_safe = escape(cat)
         insights.append({
             "type": "warning",
             "icon": "bi-arrow-up-circle-fill",
-            "text": f"<strong>{cat}</strong> spending is up <strong>{pct:.0f}%</strong> vs last period ({fmtINR(p)} → {fmtINR(c)}).",
+            "text": f"<strong>{cat_safe}</strong> spending is up <strong>{pct:.0f}%</strong> vs last period ({fmtINR(p)} → {fmtINR(c)}).",
         })
 
     # 3. Budget limit alerts
@@ -1958,16 +3548,18 @@ def get_smart_insights(data):
             near_budget.append((cat, s, float(limit), pct))
 
     for cat, s, lim in over_budget[:2]:
+        cat_safe = escape(cat)
         insights.append({
             "type": "danger",
             "icon": "bi-slash-circle-fill",
-            "text": f"<strong>{cat}</strong> is over budget — spent <strong>{fmtINR(s)}</strong> of your <strong>{fmtINR(lim)}</strong> limit.",
+            "text": f"<strong>{cat_safe}</strong> is over budget — spent <strong>{fmtINR(s)}</strong> of your <strong>{fmtINR(lim)}</strong> limit.",
         })
     for cat, s, lim, pct in near_budget[:1]:
+        cat_safe = escape(cat)
         insights.append({
             "type": "warning",
             "icon": "bi-exclamation-circle-fill",
-            "text": f"<strong>{cat}</strong> is at <strong>{pct:.0f}%</strong> of its budget ({fmtINR(s)} of {fmtINR(lim)}).",
+            "text": f"<strong>{cat_safe}</strong> is at <strong>{pct:.0f}%</strong> of its budget ({fmtINR(s)} of {fmtINR(lim)}).",
         })
 
     # 4. EMIs due in next 7 days
@@ -1985,7 +3577,7 @@ def get_smart_insights(data):
 
     if due_soon:
         total_due = sum(a for _, a, _ in due_soon)
-        names     = ", ".join(n for n, _, _ in due_soon[:3])
+        names     = ", ".join(str(escape(n)) for n, _, _ in due_soon[:3])
         insights.append({
             "type": "info",
             "icon": "bi-calendar-event-fill",
@@ -2030,6 +3622,7 @@ def api_init_data():
     return jsonify({
         "categories":      list(get_all_categories(data).keys()),
         "payment_methods": data.get("payment_methods", DEFAULT_PAYMENT_METHODS),
+        "accounts":        get_account_options(data),
     })
 
 
@@ -2601,9 +4194,15 @@ def export_pdf():
 
 # ── Cloud Backup Routes ────────────────────────────────────────────────────────
 
-@app.route("/cloud/connect/<service>")
+@app.route("/cloud/connect/<service>", methods=["POST"])
 @login_required
 def cloud_connect(service):
+    if service not in CLOUD_CREDENTIALS:
+        flash("Unknown service.", "danger")
+        return redirect(url_for("settings"))
+    if not _cloud_credentials_configured(service):
+        flash("Cloud credentials are not configured for this service. Set the SPENDSIGHT_* environment variables first.", "danger")
+        return redirect(url_for("settings") + "#cloud-backup")
     tokens = load_cloud_tokens()
     state  = secrets.token_urlsafe(16)
     tokens[f"{service}_state"] = state
@@ -2648,6 +4247,9 @@ def cloud_connect(service):
 @app.route("/cloud/callback/<service>")
 @login_required
 def cloud_callback(service):
+    if service not in CLOUD_CREDENTIALS:
+        flash("Unknown service.", "danger")
+        return redirect(url_for("settings") + "#cloud-backup")
     code  = request.args.get("code")
     state = request.args.get("state")
     error = request.args.get("error")
@@ -2726,6 +4328,12 @@ def cloud_callback(service):
 @app.route("/cloud/backup/<service>", methods=["POST"])
 @login_required
 def cloud_backup(service):
+    if service not in CLOUD_CREDENTIALS:
+        flash("Unknown service.", "danger")
+        return redirect(url_for("settings") + "#cloud-backup")
+    own_data_redirect = _own_data_required_for_cloud()
+    if own_data_redirect:
+        return own_data_redirect
     tokens    = load_cloud_tokens()
     svc_token = tokens.get(service)
     if not svc_token:
@@ -2733,9 +4341,7 @@ def cloud_backup(service):
         return redirect(url_for("settings") + "#cloud-backup")
 
     try:
-        data_file = get_current_data_file()
-        with open(data_file, "rb") as f:
-            file_bytes = f.read()
+        file_bytes = json.dumps(load_data(), indent=2, ensure_ascii=False, default=str).encode("utf-8")
 
         if service == "gdrive":
             access_token = svc_token.get("access_token", "")
@@ -2804,6 +4410,12 @@ def cloud_backup(service):
 @app.route("/cloud/restore/<service>", methods=["POST"])
 @login_required
 def cloud_restore(service):
+    if service not in CLOUD_CREDENTIALS:
+        flash("Unknown service.", "danger")
+        return redirect(url_for("settings") + "#cloud-backup")
+    own_data_redirect = _own_data_required_for_cloud()
+    if own_data_redirect:
+        return own_data_redirect
     tokens    = load_cloud_tokens()
     svc_token = tokens.get(service)
     if not svc_token:
@@ -2822,14 +4434,14 @@ def cloud_restore(service):
                 f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
                 headers={"Authorization": f"Bearer {access_token}"})
             with urllib.request.urlopen(req) as r:
-                content = r.read()
+                content = _read_limited_response(r)
 
         elif service == "onedrive":
             req = urllib.request.Request(
                 "https://graph.microsoft.com/v1.0/me/drive/root:/spendsight_backup.json:/content",
                 headers={"Authorization": f"Bearer {access_token}"})
             with urllib.request.urlopen(req) as r:
-                content = r.read()
+                content = _read_limited_response(r)
 
         elif service == "dropbox":
             import json as _json
@@ -2841,13 +4453,16 @@ def cloud_restore(service):
                          "Dropbox-API-Arg": arg,
                          "Content-Type": ""})
             with urllib.request.urlopen(req) as r:
-                content = r.read()
+                content = _read_limited_response(r)
 
-        # Validate JSON before overwriting
-        json.loads(content)
-        data_file = get_current_data_file()
-        with open(data_file, "wb") as f:
-            f.write(content)
+        # Validate and normalize JSON before overwriting local data.
+        restored_data = _validate_restore_data(json.loads(content.decode("utf-8")))
+        backup_path = os.path.join(
+            DATA_DIR,
+            f"data_{get_current_data_user_id()}.{_timestamp_suffix()}.pre_restore.bak",
+        )
+        _atomic_write_json(backup_path, load_data(), default=str)
+        save_data(restored_data)
 
         svc_names = {"gdrive": "Google Drive", "onedrive": "OneDrive", "dropbox": "Dropbox"}
         flash(f"✓ Restored from {svc_names.get(service, service)} successfully!", "success")
@@ -2861,6 +4476,9 @@ def cloud_restore(service):
 @app.route("/cloud/disconnect/<service>", methods=["POST"])
 @login_required
 def cloud_disconnect(service):
+    if service not in CLOUD_CREDENTIALS:
+        flash("Unknown service.", "danger")
+        return redirect(url_for("settings") + "#cloud-backup")
     tokens = load_cloud_tokens()
     tokens.pop(service, None)
     if service == "gdrive":
@@ -2916,7 +4534,7 @@ def api_chat():
     data = load_data()
 
     # Resolve currency symbol for formatting inside SpendBot
-    currency_code   = data.get("settings", {}).get("currency_code", "INR")
+    currency_code   = data.get("currency_code", "INR")
     currency_symbol = next(
         (c["symbol"] for c in CURRENCIES if c["code"] == currency_code), "₹"
     )

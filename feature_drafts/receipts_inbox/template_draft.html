@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}Receipts Inbox - SpendSight{% endblock %}
+{% block page_title %}Receipts Inbox{% endblock %}
+
+{% block content %}
+{% set inbox = inbox|default({"items": [], "summary": {}}) %}
+{% set summary = inbox.summary %}
+{% set categories = categories|default({}) %}
+{% set payment_methods = payment_methods|default([]) %}
+{% set upload_endpoint = upload_endpoint|default("receipts_inbox_upload") %}
+{% set update_endpoint = update_endpoint|default("receipts_inbox_update") %}
+{% set post_endpoint = post_endpoint|default("receipts_inbox_post") %}
+{% set dismiss_endpoint = dismiss_endpoint|default("receipts_inbox_dismiss") %}
+
+<style>
+  .ri-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .ri-stat,
+  .ri-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-sm);
+  }
+  .ri-stat {
+    padding: 14px 16px;
+  }
+  .ri-stat-label {
+    color: var(--text-muted);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .ri-stat-value {
+    color: var(--text-primary);
+    font-size: 1.35rem;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-top: 6px;
+  }
+  .ri-section {
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .ri-section-head {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    padding: 13px 16px;
+  }
+  .ri-section-title {
+    align-items: center;
+    color: var(--text-primary);
+    display: flex;
+    font-size: .9rem;
+    font-weight: 700;
+    gap: 8px;
+    margin: 0;
+  }
+  .ri-upload {
+    align-items: end;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(220px, 1fr) 160px 140px;
+    padding: 16px;
+  }
+  .ri-table {
+    margin: 0;
+  }
+  .ri-table th {
+    color: var(--text-muted);
+    font-size: .68rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .ri-attachment-name {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+  .ri-meta {
+    color: var(--text-muted);
+    font-size: .74rem;
+  }
+  .ri-status {
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: .72rem;
+    font-weight: 700;
+    padding: 4px 8px;
+  }
+  .ri-status.needs_review { background: var(--brand-light); color: var(--brand); }
+  .ri-status.duplicate_candidate { background: #fff7ed; color: #c2410c; }
+  .ri-status.ready_to_post { background: var(--accent-light); color: var(--accent); }
+  .ri-status.posted { background: var(--surface-3); color: var(--text-muted); }
+  .ri-status.dismissed { background: var(--surface-3); color: var(--text-faint); }
+  [data-theme="dark"] .ri-status.duplicate_candidate { background: rgba(194,65,12,.16); color: #fdba74; }
+  .ri-edit-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 16px;
+  }
+  .ri-edit-grid .wide {
+    grid-column: span 2;
+  }
+  .ri-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .ri-empty {
+    color: var(--text-muted);
+    padding: 32px 16px;
+    text-align: center;
+  }
+  @media (max-width: 992px) {
+    .ri-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ri-upload,
+    .ri-edit-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 640px) {
+    .ri-summary-grid,
+    .ri-upload,
+    .ri-edit-grid { grid-template-columns: 1fr; }
+    .ri-edit-grid .wide { grid-column: span 1; }
+    .ri-actions { justify-content: flex-start; }
+  }
+</style>
+
+<div class="ri-summary-grid">
+  <div class="ri-stat">
+    <div class="ri-stat-label">Open</div>
+    <div class="ri-stat-value">{{ summary.open|default(0) }}</div>
+  </div>
+  <div class="ri-stat">
+    <div class="ri-stat-label">Duplicates</div>
+    <div class="ri-stat-value">{{ summary.duplicate_candidate|default(0) }}</div>
+  </div>
+  <div class="ri-stat">
+    <div class="ri-stat-label">Ready</div>
+    <div class="ri-stat-value">{{ summary.ready_to_post|default(0) }}</div>
+  </div>
+  <div class="ri-stat">
+    <div class="ri-stat-label">Posted</div>
+    <div class="ri-stat-value">{{ summary.posted|default(0) }}</div>
+  </div>
+</div>
+
+<section class="ri-section">
+  <div class="ri-section-head">
+    <h2 class="ri-section-title"><i class="bi bi-cloud-arrow-up-fill"></i> Upload Receipt</h2>
+  </div>
+  <form class="ri-upload" method="POST" action="{{ url_for(upload_endpoint) }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label class="form-label">Receipt file</label>
+      <input class="form-control" type="file" name="receipt_file" accept="image/*,application/pdf" required>
+    </div>
+    <div>
+      <label class="form-label">Source</label>
+      <select class="form-select" name="source">
+        <option value="upload">Upload</option>
+        <option value="email">Email</option>
+        <option value="mobile_scan">Mobile scan</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">
+      <i class="bi bi-plus-lg me-1"></i> Add
+    </button>
+  </form>
+</section>
+
+<section class="ri-section">
+  <div class="ri-section-head">
+    <h2 class="ri-section-title"><i class="bi bi-receipt-cutoff"></i> Review Queue</h2>
+    <div class="ri-meta">{{ inbox.items|length }} item{{ "" if inbox.items|length == 1 else "s" }}</div>
+  </div>
+
+  {% if inbox.items %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle ri-table">
+      <thead>
+        <tr>
+          <th>Attachment</th>
+          <th>Extracted Transaction</th>
+          <th>Duplicate Check</th>
+          <th>Status</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in inbox.items %}
+        {% set extracted = item.extracted %}
+        {% set attachment = item.attachment %}
+        <tr>
+          <td>
+            <div class="ri-attachment-name">{{ attachment.filename or "Receipt" }}</div>
+            <div class="ri-meta">{{ attachment.content_type or "file" }}{% if attachment.size_bytes %} · {{ attachment.size_bytes }} bytes{% endif %}</div>
+          </td>
+          <td>
+            <div class="fw-semibold">{{ extracted.merchant or extracted.subcategory or "Unlabeled merchant" }}</div>
+            <div class="ri-meta">
+              {{ extracted.date or "No date" }} ·
+              {% if extracted.amount %}{{ currency_symbol }}{{ "%.2f"|format(extracted.amount) }}{% else %}No amount{% endif %}
+            </div>
+          </td>
+          <td>
+            {% if item.duplicate_candidates %}
+              {% set best = item.duplicate_candidates[0] %}
+              <span class="badge text-bg-warning">{{ "%.0f"|format(best.score * 100) }}% match</span>
+              <div class="ri-meta">{{ best.expense.date }} · {{ best.expense.subcategory or best.expense.notes }}</div>
+            {% else %}
+              <span class="badge text-bg-success">No match</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="ri-status {{ item.status }}">{{ item.status.replace("_", " ") }}</span>
+          </td>
+          <td>
+            <div class="ri-actions">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#riEdit{{ item.id }}">
+                <i class="bi bi-pencil-square"></i>
+              </button>
+              <form method="POST" action="{{ url_for(post_endpoint, item_id=item.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-success" type="submit" {% if not extracted.amount %}disabled{% endif %}>
+                  <i class="bi bi-check2"></i>
+                </button>
+              </form>
+              <form method="POST" action="{{ url_for(dismiss_endpoint, item_id=item.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger" type="submit">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <tr class="collapse" id="riEdit{{ item.id }}">
+          <td colspan="5" class="p-0">
+            <form class="ri-edit-grid" method="POST" action="{{ url_for(update_endpoint, item_id=item.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div>
+                <label class="form-label">Merchant</label>
+                <input class="form-control" name="merchant" value="{{ extracted.merchant }}">
+              </div>
+              <div>
+                <label class="form-label">Date</label>
+                <input class="form-control" type="date" name="date" value="{{ extracted.date }}">
+              </div>
+              <div>
+                <label class="form-label">Amount</label>
+                <input class="form-control" type="number" step="0.01" min="0" name="amount" value="{{ extracted.amount or "" }}">
+              </div>
+              <div>
+                <label class="form-label">Payment</label>
+                <select class="form-select" name="payment_method">
+                  <option value="">Select</option>
+                  {% for method in payment_methods %}
+                  <option value="{{ method }}" {{ "selected" if method == extracted.payment_method else "" }}>{{ method }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Category</label>
+                <select class="form-select" name="category">
+                  <option value="">Select</option>
+                  {% for category, subs in categories.items() %}
+                  <option value="{{ category }}" {{ "selected" if category == extracted.category else "" }}>{{ category }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Subcategory</label>
+                <input class="form-control" name="subcategory" value="{{ extracted.subcategory }}">
+              </div>
+              <div>
+                <label class="form-label">Status</label>
+                <select class="form-select" name="status">
+                  {% for status in ["needs_review", "duplicate_candidate", "ready_to_post"] %}
+                  <option value="{{ status }}" {{ "selected" if status == item.status else "" }}>{{ status.replace("_", " ") }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="wide">
+                <label class="form-label">Notes</label>
+                <input class="form-control" name="notes" value="{{ extracted.notes }}">
+              </div>
+              <div class="wide d-flex align-items-end justify-content-end">
+                <button class="btn btn-primary" type="submit">
+                  <i class="bi bi-save me-1"></i> Save Review
+                </button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="ri-empty">
+    <i class="bi bi-inbox" style="font-size:1.5rem;"></i>
+    <div class="mt-2">No receipts waiting for review.</div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

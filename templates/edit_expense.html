@@ -15,6 +15,7 @@
   <div class="card-body p-4">
 
     <form method="POST" action="{{ url_for('edit_expense', expense_id=expense.id) }}" id="expenseForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <!-- Amount -->
       <div class="mb-4">
@@ -83,6 +84,18 @@
           </div>
           {% endfor %}
         </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label">Linked Account</label>
+        <select name="account_id" class="form-select">
+          <option value="">No linked account</option>
+          {% for account in accounts %}
+          <option value="{{ account.id }}" {% if account.id == expense.get('account_id', '') %}selected{% endif %}>
+            {{ account.name }} ({{ account.type.replace('_', ' ')|title }})
+          </option>
+          {% endfor %}
+        </select>
       </div>
 
       <!-- Notes -->

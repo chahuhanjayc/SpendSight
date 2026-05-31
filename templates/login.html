@@ -544,6 +544,7 @@
         {% endwith %}
 
         <form method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="form-group">
             <label class="form-label">Username</label>
             <input type="text" name="username" class="form-control" placeholder="admin" required autofocus>

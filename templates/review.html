@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Review Inbox - SpendSight{% endblock %}
+{% block page_title %}Review Inbox{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-mini"><div class="v">{{ inbox.pending_count }}</div><div class="l">Needs Review</div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-mini"><div class="v">{{ format_inr(inbox.total_amount) }}</div><div class="l">Pending Amount</div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-mini"><div class="v">{{ inbox.duplicate_count }}</div><div class="l">Duplicate Signals</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header-custom">
+    <i class="bi bi-inbox-fill" style="color:var(--brand);"></i>
+    Imported Transactions
+    <form id="reviewBulkForm" method="POST" action="{{ url_for('review_inbox') }}" class="ms-auto d-flex gap-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-sm btn-outline-success" name="action" value="approve_selected"><i class="bi bi-check2-circle"></i> Approve</button>
+      <button class="btn btn-sm btn-outline-primary" name="action" value="approve_all"><i class="bi bi-check-all"></i> Approve All</button>
+      <button class="btn btn-sm btn-outline-danger" name="action" value="delete_selected" onclick="return confirm('Delete selected transactions?')"><i class="bi bi-trash3"></i></button>
+    </form>
+  </div>
+  <div class="card-body p-4">
+    {% if inbox.pending %}
+      <div class="d-grid gap-3">
+        {% for expense in inbox.pending %}
+        <div class="p-3 rounded" style="border:1px solid var(--border);background:var(--surface-2);">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <input class="form-check-input mt-0" type="checkbox" name="expense_id" value="{{ expense.id }}" form="reviewBulkForm">
+            <strong>{{ expense.subcategory }}</strong>
+            <span class="badge bg-secondary">{{ expense.source }}</span>
+            {% if expense.is_duplicate_candidate %}
+              <span class="badge bg-danger">Possible duplicate</span>
+            {% endif %}
+            <span class="ms-auto fw-bold">{{ format_inr(expense.amount) }}</span>
+          </div>
+          <form method="POST" action="{{ url_for('update_review_expense', expense_id=expense.id) }}" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-2">
+              <label class="form-label">Date</label>
+              <input class="form-control" name="date" type="date" value="{{ expense.date }}" required>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Amount</label>
+              <input class="form-control" name="amount" type="number" step="0.01" min="0.01" value="{{ expense.amount }}" required>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Category</label>
+              <input class="form-control" name="category" list="reviewCategories" value="{{ expense.category }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Subcategory</label>
+              <input class="form-control" name="subcategory" value="{{ expense.subcategory }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Payment</label>
+              <input class="form-control" name="payment_method" list="reviewPayments" value="{{ expense.payment_method }}">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Account</label>
+              <select class="form-select" name="account_id">
+                <option value="">None</option>
+                {% for account in accounts %}
+                <option value="{{ account.id }}" {{ "selected" if account.id == expense.get('account_id', '') }}>{{ account.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+              <button class="btn btn-outline-success" title="Save"><i class="bi bi-check-lg"></i></button>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <input class="form-control" name="notes" value="{{ expense.notes }}">
+            </div>
+            <div class="col-12">
+              <label class="form-check-label" style="font-size:.82rem;">
+                <input class="form-check-input" type="checkbox" name="mark_reviewed" checked>
+                Mark reviewed after saving
+              </label>
+            </div>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      <datalist id="reviewCategories">
+        {% for cat in categories.keys() %}
+        <option value="{{ cat }}"></option>
+        {% endfor %}
+      </datalist>
+      <datalist id="reviewPayments">
+        {% for pm in payment_methods %}
+        <option value="{{ pm }}"></option>
+        {% endfor %}
+      </datalist>
+    {% else %}
+      <div class="text-center py-5" style="color:var(--text-muted);">
+        Imported CSV rows, receipt-created expenses, and OCR bulk entries will appear here before they affect reports.
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -55,6 +55,7 @@
                   <li>
                     <form action="{{ url_for('admin_delete_user', uid=user.id) }}" method="POST"
                           onsubmit="return confirm('Delete user {{ user.id }}? This cannot be undone.')">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <button type="submit" class="dropdown-item text-danger">
                         <i class="bi bi-trash me-2"></i> Delete User
                       </button>
@@ -77,6 +78,7 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <form action="{{ url_for('admin_add_user') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header border-0 pb-0">
           <h5 class="modal-title fw-bold">Add New User</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -119,6 +121,7 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <form id="resetPasswordForm" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header border-0 pb-0">
           <h5 class="modal-title fw-bold">Reset Password</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
